@@ -196,6 +196,7 @@ Dev server confirmed running; tsc 0 errors; vitest 17/17 at that time.
 
 | zip | uploaded at | URL | expires |
 |---|---|---|---|
+| hard_phase2_part5_verified.zip (incl. .git history, commit 197a452; .env.local EXCLUDED) | 2026-11-19 | https://tempfile.org/841DVfgLHLj/ | +48h |
 | hard_phase2_part4_envcheck.zip (incl. .git history, commit 1082cff; .env.local EXCLUDED) | 2026-11-19 | https://tempfile.org/k3TZi6t1QrD/ | +48h |
 | hard_phase2_part3_docs.zip | 2026-11-19 | https://tempfile.org/yKT7E9W8CEx/ | +48h |
 | hard_phase2_part3.zip (incl. .git history, commit f3683e3) | 2026-11-19 | https://tempfile.org/de89D4X2uRm/ | +48h |
