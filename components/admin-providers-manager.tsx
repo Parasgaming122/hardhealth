@@ -1,8 +1,8 @@
 "use client";
 
 import { useActionState, useState } from "react";
-import { Building2, Check, Edit3, Filter, Plus, RotateCcw, Search, ShieldAlert, ShieldCheck, UserX, UsersRound, X } from "lucide-react";
-import { Badge, Button, Modal } from "@/components/ui";
+import { Check, Edit3, Plus, RotateCcw, Search, ShieldAlert, UserX, UsersRound, X } from "lucide-react";
+import { Button, Modal } from "@/components/ui";
 import {
   type ProviderRecord,
   type ProviderActionState,
@@ -257,8 +257,9 @@ export function AdminProvidersManager({ initialProviders }: { initialProviders: 
       {confirmSuspendProvider && (
         <Modal
           open={true}
-          onClose={() => setConfirmSuspendProvider(null)}
+          onOpenChange={(o) => { if (!o) setConfirmSuspendProvider(null); }}
           title="Confirm Organization Suspension"
+          description="Soft-deactivate this provider while preserving all patient histories, bills, and audit records."
         >
           <div className="space-y-4">
             <div className="notice amber">
@@ -306,7 +307,12 @@ export function AdminProvidersManager({ initialProviders }: { initialProviders: 
 
       {/* Add New Provider Modal */}
       {isAddOpen && (
-        <Modal open={true} onClose={() => setIsAddOpen(false)} title="Register Provider Organization">
+        <Modal
+          open={true}
+          onOpenChange={(o) => { if (!o) setIsAddOpen(false); }}
+          title="Register Provider Organization"
+          description="Create a provider organization record directly in the H.A.R.D registry."
+        >
           <form
             action={async (formData) => {
               await createFormAction(formData);

@@ -51,13 +51,26 @@ export default async function WorkspaceRoute({ params }: { params: Promise<{ wor
       access = { ...access, summary: summary as WorkspacePayload["summary"] };
     }
 
-    const [adminData, allProviders] = await Promise.all([
+    // Degrade gracefully when the admin-only directories are unavailable (for example a missing
+    // server-side service-role key): the workspace still renders with empty states instead of a
+    // hard failure, matching getAdminDirectoryData()'s internal fallback behavior.
+    const [adminDataRes, allProvidersRes] = await Promise.allSettled([
       getAdminDirectoryData(),
       listAllAdminProviders(),
     ]);
-    adminUsers = adminData.users;
-    adminProviders = adminData.providers;
-    allAdminProviders = allProviders;
+    if (adminDataRes.status === "fulfilled") {
+      adminUsers = adminDataRes.value.users;
+      adminProviders = adminDataRes.value.providers;
+    }
+    if (allProvidersRes.status === "fulfilled") {
+      allAdminProviders = allProvidersRes.value;
+    } else {
+      console.error(
+        "[admin] provider lifecycle directory unavailable:",
+        allProvidersRes.reason instanceof Error ? allProvidersRes.reason.message : allProvidersRes.reason
+      );
+      allAdminProviders = [];
+    }
   }
 
   let patientPortalData: RealPatientPortalData | undefined;

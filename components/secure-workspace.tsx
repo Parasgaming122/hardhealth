@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Activity, ArrowRight, BadgeCheck, Building2, ClipboardList, Database, FileClock, FilePlus2, FileText, LayoutDashboard, LogOut, Pill, Play, ScanLine, Settings2, Shield, Sparkles, Stethoscope, UsersRound, WalletCards } from "lucide-react";
 import { AdminUserManager } from "@/components/admin-user-manager";
+import { AdminProvidersManager } from "@/components/admin-providers-manager";
 import { SecureMobileNav } from "@/components/secure-mobile-nav";
 import { RealPatientPortal } from "@/components/real-patient-portal";
 import { RealFrontDeskPanel } from "@/components/real-front-desk-panel";
@@ -16,6 +17,7 @@ import { PlatformAdminPanel } from "@/components/panels/platform-admin-panel";
 import { signOutAction } from "@/app/login/actions";
 import { workspaceConfig, workspaceSlugs, isPlatformAdmin, type WorkspacePayload, type WorkspaceSlug } from "@/lib/auth/roles";
 import type { AdminApprovedProvider, AdminDirectoryUser } from "@/lib/admin/types";
+import type { ProviderRecord } from "@/lib/admin/provider-actions";
 import type { RealPatientPortalData } from "@/lib/patient/real-patient";
 import type { RealPatientSummary } from "@/lib/provider/real-provider";
 import { pkr } from "@/lib/domain";
@@ -121,6 +123,7 @@ export function SecureWorkspace({
   access,
   adminUsers,
   adminProviders,
+  allAdminProviders,
   patientPortalData,
   realPatients = [],
 }: {
@@ -130,6 +133,7 @@ export function SecureWorkspace({
   access: WorkspacePayload;
   adminUsers?: AdminDirectoryUser[];
   adminProviders?: AdminApprovedProvider[];
+  allAdminProviders?: ProviderRecord[];
   patientPortalData?: RealPatientPortalData;
   realPatients?: RealPatientSummary[];
 }) {
@@ -204,6 +208,7 @@ export function SecureWorkspace({
             <AdminUserManager initialUsers={adminUsers ?? []} providers={adminProviders ?? []} />
           ) : currentKey === "providers" ? (
             <div className="space-y-6">
+              <AdminProvidersManager initialProviders={allAdminProviders ?? []} />
               <PlatformAdminPanel section="Provider approvals" />
               <section className="secure-panel">
                 <div className="secure-panel-head">
