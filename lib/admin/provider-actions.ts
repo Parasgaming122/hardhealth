@@ -115,6 +115,18 @@ export async function updateProviderStatusAction(
       return { error: `Unsupported provider action "${action}".`, success: null };
     }
 
+    // Capture the previous state first so a failed audit write can be compensated
+    // (the update and the audit insert are two REST calls, not one transaction).
+    const { data: previous, error: prevErr } = await admin
+      .from("provider_organizations")
+      .select("id, status, approved_at, approved_by")
+      .eq("id", providerId)
+      .maybeSingle();
+
+    if (prevErr || !previous) {
+      return { error: "Provider organization not found.", success: null };
+    }
+
     const { error: updateErr } = await admin
       .from("provider_organizations")
       .update({
@@ -126,8 +138,10 @@ export async function updateProviderStatusAction(
 
     if (updateErr) return { error: `Status update failed: ${updateErr.message}`, success: null };
 
-    // Record audit log
-    await admin.from("audit_events").insert({
+    // Record audit log; if it cannot be written, roll the status change back so the
+    // registry is never mutated without an immutable audit trail (Business Rule: every
+    // non-patient write lands in audit_events).
+    const { error: auditErr } = await admin.from("audit_events").insert({
       actor_user_id: user.id,
       provider_id: providerId,
       event_type: "provider_status_change",
@@ -135,6 +149,25 @@ export async function updateProviderStatusAction(
       resource_id: providerId,
       metadata: { action: auditAction, status: newDbStatus, note, timestamp: new Date().toISOString() },
     });
+
+    if (auditErr) {
+      await admin
+        .from("provider_organizations")
+        .update({
+          status: previous.status,
+          approved_at: previous.approved_at,
+          approved_by: previous.approved_by,
+        })
+        .eq("id", providerId);
+
+      const migrationHint = /event_type_check|check constraint/i.test(auditErr.message)
+        ? " This database is missing migration 20261119000000_provider_status_change_audit.sql — apply it in the Supabase SQL editor before using status changes."
+        : "";
+      return {
+        error: `Status change was rolled back because the audit trail could not be written: ${auditErr.message}.${migrationHint}`,
+        success: null,
+      };
+    }
 
     revalidatePath("/admin/providers");
     revalidatePath("/admin/overview");

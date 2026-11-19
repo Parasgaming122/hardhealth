@@ -67,8 +67,11 @@ tests/                              vitest unit + node:test e2e smoke
 
 - **Phase 1 (complete)**: full audit + gap analysis, documented in `task.md`.
 - **Phase 2 (in progress)**: fixing the Critical/High gaps. Part 3 = Admin Providers Manager
-  (full provider lifecycle: create/approve/reject/suspend/reinstate/edit) — was interrupted
-  mid-implementation; the current session completed it. See `CHANGES.md`.
+  (full provider lifecycle: create/approve/reject/suspend/reinstate/edit) — code complete, and
+  **runtime-verified against the live Supabase project (Session 4)**: login, live rendering,
+  create, and edit all work; status changes are blocked ONLY by the unapplied migration
+  `20261119000000_provider_status_change_audit.sql` (owner applies it via the Supabase SQL editor;
+  until then they fail gracefully WITH rollback and a message naming the migration).
 - **Next up (Phase 2 remainder / Phase 3)**: DB unique index on patients.cnic, doctor prescription
   templates persisted to DB, printable Rx PDF, storage 100% upload block, config table persistence,
   provider-admin staff management, platform config editor.
@@ -103,7 +106,21 @@ pnpm build                       # next build (needs NEXT_PUBLIC_SUPABASE_* env 
 
 `.env.local` needs `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`,
 `AUTH_COOKIE_MODE=local-http` (local only), and `SUPABASE_SERVICE_ROLE_KEY` (server-only, required by
-the new admin provider actions; **never** prefix with NEXT_PUBLIC).
+the new admin provider actions; **never** prefix with NEXT_PUBLIC). **Status (Session 4)**: the real
+`.env.local` exists in the workspace and is LIVE-VERIFIED against the Supabase project
+(`wtawsbtjbhyzseqzfsoo`); it is gitignored and excluded from backup zips. The service-role key
+enables runtime DML via REST but NOT DDL — migrations still require the Supabase SQL editor (or DB
+password / platform PAT). The sandbox cannot reach the Postgres port (IPv6-only direct host).
+
+## Live-DB verification tooling (Session 4)
+
+Reusable scripts live in `/home/z/my-project/scripts/` (outside the repo, not shipped):
+- `inspect_supabase.js` / `probe_migration_state.js` — table/constraint/RPC probes via service key.
+- `create_test_admin.js` — creates a temporary platform_admin + writes `.test-admin.json`.
+- `verify_admin_ui.mjs` — 15-check Playwright walk of `/admin/providers` (login → live rows →
+  create → edit → approve-fail-rollback → suspend modal). Needs the dev server running and the
+  test admin present.
+- `cleanup_session4.js` — removes test orgs/user; pattern to copy for future cleanup.
 
 ## Backup convention (user requirement)
 

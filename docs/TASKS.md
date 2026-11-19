@@ -39,12 +39,21 @@ Full inventory of roles/pages/components/APIs vs `HARD_Developer_Brief_v2.md`, d
   trusted-origin 3, signup-validation 3, globals-styles 1), `pnpm build` success.
 - [done] Runtime smoke test: public routes 200, `/admin/overview` 307 → `/login` when
   unauthenticated (guard works).
-- [todo] Manual UI verification against live Supabase once `SUPABASE_SERVICE_ROLE_KEY` is set in
-  the deployment env (sandbox has no real Supabase credentials — runtime paths verified by types
-  and unit tests only). Migration must be applied to the `hard-health-dev` project before use.
+- [done] **Session 4**: Manual UI verification against LIVE Supabase (owner supplied `.env.local`).
+  15/15 Playwright checks: login → `/admin/providers` renders the 4 live orgs; create + edit actions
+  write live rows + audit events; status changes fail gracefully + roll back pre-migration.
+  Two fixes landed as a result (see CHANGES.md Session 4): props→state sync useEffect, and
+  compensating rollback in `updateProviderStatusAction`.
+- [blocked→owner] Apply `supabase/migrations/20261119000000_provider_status_change_audit.sql` via
+  the Supabase SQL editor (sandbox cannot run DDL — IPv6-only direct host, no SQL API for service
+  keys). This is the ONLY thing blocking approve/reject/suspend/reinstate; create/edit already work
+  live. After applying, re-run `node /home/z/my-project/scripts/verify_admin_ui.mjs` (recreate the
+  test admin first via `scripts/create_test_admin.js`) and expect 15/15 with status changes
+  succeeding.
 
 ### Phase 2 remaining backlog (priority order from Phase 1 audit)
 - [todo] **P2-4** patients.cnic column + DB unique index (duplicate CNIC hard-fail; brief 5.2/11.10).
+  Note: needs DDL — batch with the pending migration when the owner opens the SQL editor.
 - [todo] **P2-5** Doctor prescription templates persisted to DB (table + CRUD + picker in
   real doctor panel; brief 5.4/7.2).
 - [todo] **P2-6** Printable prescription PDF/print view with QR (brief 5.4).
@@ -52,6 +61,9 @@ Full inventory of roles/pages/components/APIs vs `HARD_Developer_Brief_v2.md`, d
 - [todo] **P2-8** Platform config table + real config editor persistence (brief 8.7/22, Rule 1).
 - [todo] **P2-9** Provider-admin staff sub-role editing + payout status (brief 8.6).
 - [todo] **P2-10** Soft delete/deactivation UI for staff + patients w/ confirmation (brief 11.3).
+- [todo] **P2-11** (new, from Session 4 findings) Durable fix for the two-REST-call status change:
+  single SECURITY DEFINER RPC doing update+audit atomically (replaces the compensating rollback,
+  see DECISIONS.md D13). Can be combined with the DDL batch above.
 
 ## Phase 3 — Acceptance-criteria validation (after Phase 2 backlog)
 - [todo] Walk brief Section 20 acceptance criteria end-to-end against the running app.

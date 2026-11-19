@@ -5,7 +5,64 @@ backup zip + tempfile URL produced.
 
 ---
 
-## 2026-11-19 — Session 3 (this session): Complete Phase 2 Part 3 (Admin Providers Manager)
+## 2026-11-19 — Session 4 (this session): .env.local wired to live Supabase + full runtime verification
+
+**Context**: Owner supplied the real `.env.local` values (Supabase URL, publishable key, service-role
+key, `AUTH_COOKIE_MODE=local-http`, site URL). This unblocked the two Part 3 follow-ups: live-DB
+runtime verification and migration application. Note: `.env.local` is gitignored and is EXCLUDED
+from all backup zips (credentials must not leak to tempfile.org).
+
+**Live DB state discovered** (via service-key REST probes — no SQL route from sandbox, see
+DECISIONS.md D12):
+- All three pre-existing migrations ARE applied. 4 provider orgs (3 approved: Cedar Medical Centre,
+  Northstar Diagnostics, Green Cross Pharmacy; 1 pending: Metro Health Clinic), 1 patient
+  (HARD-000102), 2 auth users; `parasmehtabofficial@gmail.com` is the active platform_admin.
+- Migration `20261119000000_provider_status_change_audit.sql` is **NOT applied** (probe insert of
+  `event_type='provider_status_change'` violates the CHECK). DDL cannot be applied from the
+  sandbox — owner must paste the SQL into the Supabase SQL editor (file:
+  `supabase/migrations/20261119000000_provider_status_change_audit.sql`).
+
+**Verification performed** (Playwright driving the real UI at localhost:3000 against the live DB,
+15/15 checks, screenshots in session logs):
+- Login as a temporary platform_admin → `/admin/overview`; `/admin/providers` renders all 4 live
+  orgs with live staff counts; filter chips count live rows.
+- `createProviderAction` → live insert + `write` audit row; new row appears WITHOUT reload.
+- `editProviderDetailsAction` → live update + `write` audit row; edit reflects without reload.
+- `updateProviderStatusAction` (approve + suspend-modal flows) → fails GRACEFULLY pre-migration
+  with a clear error naming the missing migration; status is ROLLED BACK (verified via reload +
+  direct DB read: Cedar stayed `approved` after a failed suspend).
+
+**Changes made this session** (2 files, both fixes found BY the runtime verification):
+
+1. `components/admin-providers-manager.tsx`
+   - Added `useEffect(() => setProviders(initialProviders), [initialProviders])` (the
+     `admin-user-manager.tsx` convention). Before: created/edited providers only appeared after a
+     manual page reload because local state ignored prop updates after `revalidatePath`.
+
+2. `lib/admin/provider-actions.ts` — `updateProviderStatusAction` hardening:
+   - Fetches the previous `status/approved_at/approved_by` before mutating.
+   - If the audit insert fails, writes the previous values back (compensating update) so the
+     registry is never mutated without an audit trail (the live DB proved a real half-commit:
+     status changed while the audit insert threw the CHECK violation).
+   - Error message now explains the rollback and names the missing migration when the failure
+     matches the CHECK-constraint signature.
+
+**Cleanup after verification**: all 4 test provider orgs deleted; temporary test platform_admin
+user deleted (cascades profiles + user_roles); DB back to its pre-session state except ~6 harmless
+append-only `write` audit rows whose `provider_id` became NULL on org delete (audit_events is
+append-only by design).
+
+**Quality gate**: `pnpm typecheck` 0 errors · `pnpm test` 17/17 · `pnpm build` success.
+
+**Backups produced**: `hard_phase2_part4_envcheck.zip` (final state; tempfile URL logged below).
+
+**Handed to owner (blocking status changes only)**: apply
+`supabase/migrations/20261119000000_provider_status_change_audit.sql` in the Supabase SQL editor.
+Everything else in the provider manager already works against the live DB.
+
+---
+
+## 2026-11-19 — Session 3: Complete Phase 2 Part 3 (Admin Providers Manager)
 
 **Context**: Previous session (Session 2) ran out of credits mid-Phase 2. Per `task.md`, it had
 created `lib/admin/provider-actions.ts`, created `components/admin-providers-manager.tsx`, and

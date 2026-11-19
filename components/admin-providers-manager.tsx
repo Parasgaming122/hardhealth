@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useEffect, useState } from "react";
 import { Check, Edit3, Plus, RotateCcw, Search, ShieldAlert, UserX, UsersRound, X } from "lucide-react";
 import { Button, Modal } from "@/components/ui";
 import {
@@ -17,6 +17,14 @@ export function AdminProvidersManager({ initialProviders }: { initialProviders: 
   const [providers, setProviders] = useState(initialProviders);
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [search, setSearch] = useState("");
+
+  // Server actions call revalidatePath, which re-renders the workspace with fresh
+  // provider records. Mirror the AdminUserManager convention: sync local state when
+  // the server passes new props, so create/edit/status changes reflect without a
+  // full page reload.
+  useEffect(() => {
+    setProviders(initialProviders);
+  }, [initialProviders]);
 
   // Modals state
   const [editingProvider, setEditingProvider] = useState<ProviderRecord | null>(null);

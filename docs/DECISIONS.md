@@ -106,3 +106,40 @@ demo-data `PlatformAdminPanel("Provider approvals")` and the approved-org static
 the real lifecycle manager (the actual work product) primary while preserving the demo approval
 queue below it. When Phase 3 wires real config/audit persistence, `PlatformAdminPanel`'s demo
 sections should be replaced rather than stacked.
+
+## D12 — Live DB runtime verification path (2026-11-19, Session 4)
+
+The sandbox has NO direct Postgres route to the Supabase project: direct host
+`db.<ref>.supabase.co` is IPv6-only (sandbox is IPv4, ENETUNREACH), `/pg/*` gateway endpoints
+return 404 for service-key auth, and no psql/pg_dump binaries exist. Consequences:
+- **DDL (migrations) cannot be applied from the sandbox.** They need the owner (Supabase SQL
+  editor), the database password (IPv4 pooler), or a platform PAT. Runtime DML works fine via
+  REST + service key.
+- **Browser-level verification works**: playwright-core +
+  `~/.cache/ms-playwright/chromium-1200/chrome-linux64/chrome` via `executablePath` (installed
+  cache is r1200; playwright-core 1.65 expects r1254, so the default launch fails — always pass
+  executablePath explicitly).
+- ESM scripts outside the repo must use `createRequire("…/hardhealth/package.json")` to load
+  playwright-core / supabase-js from the repo's node_modules.
+
+## D13 — Status changes roll back if the audit write fails (2026-11-19, Session 4)
+
+`updateProviderStatusAction` performs TWO REST calls (status update, then audit insert) — no
+transaction. Runtime verification against the live DB proved a half-commit: the status changed
+while the audit insert failed on the CHECK constraint (pre-migration), leaving an un-audited
+mutation. Fix: capture the previous row first; if the audit insert fails, write the previous
+status/approved_at/approved_by back (compensating update) and return an error that names the
+missing migration when the message matches `/event_type_check|check constraint/i`. This is not
+true atomicity (a crash between the two calls still half-commits) but covers the realistic
+failure mode; the durable fix is a single SECURITY DEFINER RPC when the schema is next touched.
+`create`/`edit` actions audit as `'write'` (already in the CHECK) so they have no known
+half-commit trigger; they were left unchanged deliberately.
+
+## D14 — AdminProvidersManager must sync props → state (2026-11-19, Session 4)
+
+Runtime verification caught that creates/edits never appeared in the table without a manual page
+reload: the component held `useState(initialProviders)` and ignored prop updates (classic
+derived-state antipattern). Fixed with the repo's existing convention (see `admin-user-manager.tsx`):
+`useEffect(() => setProviders(initialProviders), [initialProviders])`. Server actions call
+`revalidatePath`, Next.js streams fresh props, the effect syncs state. Any new manager component
+must copy this pattern.
