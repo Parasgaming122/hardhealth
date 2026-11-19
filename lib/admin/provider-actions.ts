@@ -97,7 +97,9 @@ export async function updateProviderStatusAction(
   if (!providerId) return { error: "Provider ID is required.", success: null };
 
   try {
-    const { user, admin } = await verifyAdmin();
+    // Friendly early precheck (auth + active platform admin). The RPC re-asserts
+    // the role internally as the authoritative gate.
+    await verifyAdmin();
 
     // Past-tense labels for the success toast. The DB stores suspensions as
     // 'rejected' (the CHECK constraint has no 'suspended' value), but the user
@@ -108,80 +110,36 @@ export async function updateProviderStatusAction(
       suspend: "suspended",
       reinstate: "reinstated",
     };
-
-    let newDbStatus = "approved";
-    let auditAction = action;
-
-    if (action === "approve" || action === "reinstate") {
-      newDbStatus = "approved";
-      auditAction = action === "reinstate" ? "reinstate" : "approve";
-    } else if (action === "reject") {
-      newDbStatus = "rejected";
-      auditAction = "reject";
-    } else if (action === "suspend") {
-      newDbStatus = "rejected"; // DB constraint prevents unapproved actions
-      auditAction = "suspend";
-    } else {
+    if (!pastTense[action]) {
       return { error: `Unsupported provider action "${action}".`, success: null };
     }
 
-    // Capture the previous state first so a failed audit write can be compensated
-    // (the update and the audit insert are two REST calls, not one transaction).
-    const { data: previous, error: prevErr } = await admin
-      .from("provider_organizations")
-      .select("id, status, approved_at, approved_by")
-      .eq("id", providerId)
-      .maybeSingle();
+    // Atomic status change (P2-11): one SECURITY DEFINER RPC performs the
+    // provider update AND the audit_events insert in a single transaction, so
+    // a half-committed status change (mutation without audit trail) is
+    // impossible. The RPC asserts the platform-admin role itself; it is called
+    // with the USER's client so auth.uid() resolves (see DECISIONS.md D13/D15).
+    const supabase = await createSupabaseServerClient();
+    const { data: auditAction, error: rpcError } = await supabase.rpc(
+      "admin_set_provider_status",
+      { p_provider_id: providerId, p_action: action, p_note: note }
+    );
 
-    if (prevErr || !previous) {
-      return { error: "Provider organization not found.", success: null };
-    }
-
-    const { error: updateErr } = await admin
-      .from("provider_organizations")
-      .update({
-        status: newDbStatus,
-        approved_at: newDbStatus === "approved" ? new Date().toISOString() : null,
-        approved_by: newDbStatus === "approved" ? user.id : null,
-      })
-      .eq("id", providerId);
-
-    if (updateErr) return { error: `Status update failed: ${updateErr.message}`, success: null };
-
-    // Record audit log; if it cannot be written, roll the status change back so the
-    // registry is never mutated without an immutable audit trail (Business Rule: every
-    // non-patient write lands in audit_events).
-    const { error: auditErr } = await admin.from("audit_events").insert({
-      actor_user_id: user.id,
-      provider_id: providerId,
-      event_type: "provider_status_change",
-      resource_type: "provider_organization",
-      resource_id: providerId,
-      metadata: { action: auditAction, status: newDbStatus, note, timestamp: new Date().toISOString() },
-    });
-
-    if (auditErr) {
-      await admin
-        .from("provider_organizations")
-        .update({
-          status: previous.status,
-          approved_at: previous.approved_at,
-          approved_by: previous.approved_by,
-        })
-        .eq("id", providerId);
-
-      const migrationHint = /event_type_check|check constraint/i.test(auditErr.message)
-        ? " This database is missing migration 20261119000000_provider_status_change_audit.sql — apply it in the Supabase SQL editor before using status changes."
-        : "";
+    if (rpcError || !auditAction) {
+      const msg = rpcError?.message ?? "";
+      const migrationHint =
+        /admin_set_provider_status/i.test(msg) && /could not find|does not exist|not exist/i.test(msg)
+          ? " This database is missing migration 20261119100000_cnic_unique_atomic_status.sql — apply it in the Supabase SQL editor to enable atomic status changes."
+          : "";
       return {
-        error: `Status change was rolled back because the audit trail could not be written: ${auditErr.message}.${migrationHint}`,
+        error: `Status change failed: ${msg || "no result returned"}.${migrationHint}`,
         success: null,
       };
     }
 
     revalidatePath("/admin/providers");
     revalidatePath("/admin/overview");
-    return { error: null, success: `Provider status successfully updated to ${pastTense[auditAction]}.` };
+    return { error: null, success: `Provider status successfully updated to ${pastTense[auditAction] ?? auditAction}.` };
   } catch (err: unknown) {
     return { error: err instanceof Error ? err.message : "Provider update failed.", success: null };
   }

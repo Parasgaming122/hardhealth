@@ -19,27 +19,90 @@ export async function registerRealPatient(input: {
 
   const admin = createSupabaseAdminClient();
 
-  // Find next Health ID
-  const { count } = await admin.from("patients").select("*", { count: "exact", head: true });
-  const serial = (count ?? 0) + 101;
-  const healthId = `HARD-${String(serial).padStart(6, "0")}`;
+  // CNIC identity (brief 5.2 / 11.10): normalize to 13 digits so formatting
+  // variants of the same card collide on the DB unique index, and reject
+  // duplicates BEFORE creating any invoice/ledger/audit rows.
+  const cnicDigits = (input.cnic ?? "").replace(/[^0-9]/g, "");
+  if (cnicDigits.length !== 13) {
+    throw new Error("CNIC must contain exactly 13 digits (format: 42101-1234567-1).");
+  }
+
+  // Duplicate pre-check (brief 5.2). A missing-column error here means the
+  // migration has not been applied yet — fall through to the insert, which
+  // produces the actionable migration-hint message.
+  const { data: existingByCnic, error: cnicCheckError } = await admin
+    .from("patients")
+    .select("health_id, full_name")
+    .eq("cnic", cnicDigits)
+    .maybeSingle();
+  if (!cnicCheckError && existingByCnic) {
+    throw new Error(
+      `This CNIC is already registered to ${existingByCnic.full_name} (${existingByCnic.health_id}). One patient, one Health ID — search the directory instead of re-registering.`
+    );
+  }
+
+  // Next Health ID from the highest existing serial. A count(*)-based serial
+  // breaks as soon as any patient row is deleted (uniqueness is on health_id,
+  // not row count); max(health_id) is monotonic regardless of deletions.
+  const { data: lastByHealthId } = await admin
+    .from("patients")
+    .select("health_id")
+    .order("health_id", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const lastSerial = Number.parseInt((lastByHealthId?.health_id ?? "").replace(/\D/g, ""), 10);
+  let serial = (Number.isFinite(lastSerial) && lastSerial >= 100 ? lastSerial : 100) + 1;
+
+  // 1. Insert patient (retry on a health_id race: another desk grabbed the same serial)
+  const insert = () =>
+    admin
+      .from("patients")
+      .insert({
+        health_id: `HARD-${String(serial).padStart(6, "0")}`,
+        full_name: input.fullName.trim(),
+        cnic: cnicDigits,
+        date_of_birth: input.dob ? input.dob : null,
+        gender: input.gender || null,
+        blood_group: input.bloodGroup || "O+",
+        created_by: user.id,
+      })
+      .select()
+      .single();
+
+  type InsertResult = Awaited<ReturnType<typeof insert>>;
+  let result: InsertResult = await insert();
+  let newPatient: InsertResult["data"] = null;
+  let insertError: string | null = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (result.data) {
+      newPatient = result.data;
+      break;
+    }
+    if (result.error?.code === "23505" && /health_id/i.test(result.error.message ?? "")) {
+      serial += 1; // serial taken between our max-read and the insert — take the next one
+      result = await insert();
+      continue;
+    }
+    insertError = result.error?.message ?? "insert failed";
+    break;
+  }
+  const pError = newPatient ? null : { code: result.error?.code ?? "", message: insertError ?? "insert failed" };
+  const healthId = newPatient?.health_id ?? "";
   const receiptNo = `HARD-R-${String(serial).padStart(5, "0")}`;
 
-  // 1. Insert patient
-  const { data: newPatient, error: pError } = await admin
-    .from("patients")
-    .insert({
-      health_id: healthId,
-      full_name: input.fullName.trim(),
-      date_of_birth: input.dob ? input.dob : null,
-      gender: input.gender || null,
-      blood_group: input.bloodGroup || "O+",
-      created_by: user.id,
-    })
-    .select()
-    .single();
-
-  if (pError || !newPatient) throw new Error(`Could not register patient: ${pError?.message}`);
+  if (pError || !newPatient) {
+    // Unique-violation (23505) = a concurrent desk registered the same CNIC between
+    // our pre-check and the insert — the DB index is the source of truth.
+    if (pError?.code === "23505" && /cnic/i.test(pError?.message ?? "")) {
+      throw new Error("This CNIC was just registered by another desk. Reload the directory and search by CNIC.");
+    }
+    if (/cnic/i.test(pError?.message ?? "") && /could not find|does not exist/i.test(pError?.message ?? "")) {
+      throw new Error(
+        "Could not register patient: the patients table is missing the cnic column — apply migration 20261119100000_cnic_unique_atomic_status.sql in the Supabase SQL editor."
+      );
+    }
+    throw new Error(`Could not register patient: ${pError?.message}`);
+  }
 
   // 2. Insert registration invoice (PKR 500)
   const regFee = 500;

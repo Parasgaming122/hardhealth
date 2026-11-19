@@ -5,7 +5,61 @@ backup zip + tempfile URL produced.
 
 ---
 
-## 2026-11-19 — Session 5 (this session): migration applied by owner + full status-change lifecycle verified live
+## 2026-11-19 — Session 6 (this session): P2-4 CNIC uniqueness + P2-11 atomic status RPC (code complete, DDL pending)
+
+**Context**: Phase 2 Part 3 closed in Session 5, so this session took the next backlog items that need
+DDL — deliberately BATCHED into one migration file so the owner runs a single SQL in the Supabase
+editor: `supabase/migrations/20261119100000_cnic_unique_atomic_status.sql`.
+
+**Migration contents** (NOT yet applied to live DB — handed to owner):
+- Part A (P2-4, brief 5.2/11.10): `patients.cnic text` column (digits-only normalization of any
+  existing values), `patients_cnic_format_check` (NULL or exactly 13 digits), partial UNIQUE index
+  `patients_cnic_unique_idx` on non-NULL cnic — duplicate registrations now fail hard at the DB level.
+- Part B (P2-11 / D13 durable fix): `hard_private.admin_set_provider_status(provider_id, action, note)`
+  SECURITY DEFINER RPC doing the provider update AND the `provider_status_change` audit insert in ONE
+  transaction; public wrapper `admin_set_provider_status` granted to authenticated only (exact
+  pattern of `admin_list_providers` et al.).
+
+**App changes** (5 files):
+
+1. `lib/provider/actions.ts` — `registerRealPatient`: CNIC normalized to 13 digits (rejects bad
+   format pre-flight), duplicate pre-check with a friendly "already registered to X (HARD-xxxxx)"
+   error, `cnic` included in the insert, unique-violation + missing-column errors translated
+   (missing-column message names migration 20261119100000).
+2. `lib/provider/real-provider.ts` — `listRealPatients` selects cnic; pre-migration fallback
+   (retries without cnic) so the front desk never 500s before the owner applies the SQL.
+3. `lib/provider/types.ts` — `RealPatientSummary.cnic: string | null`.
+4. `lib/admin/provider-actions.ts` — `updateProviderStatusAction` rewritten to call the atomic RPC
+   with the USER's client (auth.uid() must resolve inside the RPC; service key cannot call it).
+   The two-REST-call flow + compensating rollback is deleted; missing-RPC errors name the migration.
+5. `components/real-front-desk-panel.tsx` — CNIC column in the directory (formatted 5-7-1),
+   search matches name/HealthID/CNIC-digits, client-side 13-digit validation, optimistic row
+   includes cnic.
+6. `lib/supabase/security.test.ts` — 2 new guardrail tests pin the migration's security posture
+   (CNIC uniqueness + nullable-for-self-signups; RPC revoked from everyone except the public
+   wrapper granted to authenticated).
+
+**Bug found & fixed during smoke** (pre-existing, live in prod path): Health IDs were generated as
+`count(*)+101`; with test patients deleted across sessions the count collides with an existing
+health_id → `patients_health_id_key` violation on EVERY new patient (reproduced: desk user signup
+crashed /patient/overview). Both generators (`ensurePatientRecord`, `registerRealPatient`) now use
+`max(health_id)+1` with a 23505-retry taking the next serial. D16.
+
+**Verification**: `pnpm typecheck` 0 errors · `pnpm test` 19/19 (2 new) · `pnpm build` success ·
+`scripts/verify_premigration_s6.mjs` 11/11 against the LIVE DB pre-migration: admin providers page
+loads; status change fails gracefully naming the missing migration and mutates nothing; front desk
+register page loads (list fallback); CNIC register fails with the migration hint; client-side
+13-digit validation active; health-id collision fixed (patient workspace renders). Test orgs/users
+cleaned; DB back to 4 orgs + 1 patient.
+
+**Handed to owner (blocking live use, not blocking dev)**: apply
+`supabase/migrations/20261119100000_cnic_unique_atomic_status.sql` in the Supabase SQL editor.
+After it lands, re-run `scripts/verify_admin_ui.mjs` (expect 21/21 with atomic RPC) and the S6
+post-migration checks (CNIC happy-path + duplicate rejection).
+
+---
+
+## 2026-11-19 — Session 5: migration applied by owner + full status-change lifecycle verified live
 
 **Context**: Owner applied `supabase/migrations/20261119000000_provider_status_change_audit.sql` in
 the Supabase SQL editor ("ran the sql"). Probe confirmed the live CHECK now accepts

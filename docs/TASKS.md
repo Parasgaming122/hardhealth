@@ -54,18 +54,22 @@ Full inventory of roles/pages/components/APIs vs `HARD_Developer_Brief_v2.md`, d
   **Phase 2 Part 3 is now fully closed — no blockers remain on the provider manager.**
 
 ### Phase 2 remaining backlog (priority order from Phase 1 audit)
-- [todo] **P2-4** patients.cnic column + DB unique index (duplicate CNIC hard-fail; brief 5.2/11.10).
-  Note: needs DDL — batch with the next migration for the owner's SQL editor.
+- [wip→owner-SQL] **P2-4** patients.cnic column + DB unique index — CODE COMPLETE (Session 6):
+  migration part A + register/search/display/validation in the front desk; pre-migration fallbacks.
+  Blocked only on the owner applying `20261119100000_cnic_unique_atomic_status.sql`.
+- [wip→owner-SQL] **P2-11** atomic SECURITY DEFINER status-change RPC — CODE COMPLETE (Session 6):
+  `updateProviderStatusAction` now calls `admin_set_provider_status`; two-call flow + compensating
+  rollback deleted (D15). Same owner SQL as P2-4.
 - [todo] **P2-5** Doctor prescription templates persisted to DB (table + CRUD + picker in
-  real doctor panel; brief 5.4/7.2). Needs DDL — same batch.
+  real doctor panel; brief 5.4/7.2). Needs DDL — batch into the NEXT migration.
 - [todo] **P2-6** Printable prescription PDF/print view with QR (brief 5.4).
 - [todo] **P2-7** Storage meter 100% upload block (uploads blocked, reads allowed; brief 5.8/11.5).
 - [todo] **P2-8** Platform config table + real config editor persistence (brief 8.7/22, Rule 1).
 - [todo] **P2-9** Provider-admin staff sub-role editing + payout status (brief 8.6).
 - [todo] **P2-10** Soft delete/deactivation UI for staff + patients w/ confirmation (brief 11.3).
 - [todo] **P2-11** (new, from Session 4 findings) Durable fix for the two-REST-call status change:
-  single SECURITY DEFINER RPC doing update+audit atomically (replaces the compensating rollback,
-  see DECISIONS.md D13). Can be combined with the DDL batch above.
+  single SECURITY DEFINER RPC doing update+audit atomically. — DONE in Session 6 (see wip entry
+  above); this line kept for history.
 
 ## Phase 3 — Acceptance-criteria validation (after Phase 2 backlog)
 - [todo] Walk brief Section 20 acceptance criteria end-to-end against the running app.

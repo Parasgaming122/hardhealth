@@ -26,25 +26,53 @@ export async function ensurePatientRecord(userId: string, displayName?: string):
     };
   }
 
-  // Generate next Health ID
-  const { count } = await admin.from("patients").select("*", { count: "exact", head: true });
-  const serial = (count ?? 0) + 101;
-  const healthId = `HARD-${String(serial).padStart(6, "0")}`;
+  // Generate next Health ID from the highest existing serial. count(*)-based
+  // numbering breaks when patient rows are deleted (uniqueness is on health_id);
+  // max(health_id) stays monotonic. Retry on a health_id race with the next serial.
+  const { data: lastByHealthId } = await admin
+    .from("patients")
+    .select("health_id")
+    .order("health_id", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const lastSerial = Number.parseInt((lastByHealthId?.health_id ?? "").replace(/\D/g, ""), 10);
+  let serial = (Number.isFinite(lastSerial) && lastSerial >= 100 ? lastSerial : 100) + 1;
   const fullName = displayName && displayName !== "H.A.R.D user" ? displayName : "H.A.R.D Patient";
 
-  const { data: inserted, error } = await admin
-    .from("patients")
-    .insert({
-      user_id: userId,
-      health_id: healthId,
-      full_name: fullName,
-      blood_group: "O+",
-    })
-    .select()
-    .single();
+  let inserted: Awaited<ReturnType<typeof fetchExisting>>["data"] = null;
+  let insertError: string | null = null;
+  const attemptInsert = () =>
+    admin
+      .from("patients")
+      .insert({
+        user_id: userId,
+        health_id: `HARD-${String(serial).padStart(6, "0")}`,
+        full_name: fullName,
+        blood_group: "O+",
+      })
+      .select()
+      .single();
 
-  if (error || !inserted) {
-    throw new Error(`Could not ensure patient profile: ${error?.message}`);
+  const fetchExisting = () =>
+    admin.from("patients").select("*").eq("user_id", userId).maybeSingle();
+
+  let attempt = await attemptInsert();
+  for (let i = 0; i < 3; i++) {
+    if (attempt.data) {
+      inserted = attempt.data;
+      break;
+    }
+    if (attempt.error?.code === "23505" && /health_id/i.test(attempt.error.message ?? "")) {
+      serial += 1; // serial raced with another signup — take the next one
+      attempt = await attemptInsert();
+      continue;
+    }
+    insertError = attempt.error?.message ?? "insert failed";
+    break;
+  }
+
+  if (!inserted) {
+    throw new Error(`Could not ensure patient profile: ${insertError}`);
   }
 
   return {

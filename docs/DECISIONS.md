@@ -143,3 +143,26 @@ derived-state antipattern). Fixed with the repo's existing convention (see `admi
 `useEffect(() => setProviders(initialProviders), [initialProviders])`. Server actions call
 `revalidatePath`, Next.js streams fresh props, the effect syncs state. Any new manager component
 must copy this pattern.
+
+## D15 — Provider status changes go through one SECURITY DEFINER RPC (2026-11-19, Session 6)
+
+Replaces the D13 compensating-rollback approach: `hard_private.admin_set_provider_status(provider_id,
+action, note)` performs the provider update AND the `provider_status_change` audit insert in a single
+transaction, so a half-committed status change is now impossible by construction. Conventions copied
+from the existing admin RPCs: private impl in `hard_private` (revoked from everyone), thin public SQL
+wrapper granted to `authenticated` only, role asserted inside via `hard_private.assert_platform_admin()`.
+Calling it requires the USER's Supabase client (`auth.uid()` must resolve — the service-role key
+cannot invoke it), so `updateProviderStatusAction` opens a server client for the RPC while keeping
+`verifyAdmin()` as a friendly early precheck. D13's rollback code is deleted, not kept as a fallback:
+a DB missing the RPC reports a clear "apply migration 20261119100000" error (verified live pre-migration).
+
+## D16 — Health IDs are generated from max(health_id), never count(*) (2026-11-19, Session 6)
+
+Both patient-creation paths (`ensurePatientRecord` self-signup, `registerRealPatient` desk
+registration) previously derived the next serial as `count(*)+101`. That breaks the moment any
+patient row is deleted: the count then maps onto an existing health_id and EVERY subsequent
+signup violates `patients_health_id_key` (reproduced live — a test user's /patient/overview
+crashed exactly this way after earlier test-patient cleanups). Both generators now read
+`max(health_id)`, parse its numeric suffix, +1, and on a 23505 race retry with the next serial
+(3 attempts). New invariant to maintain: health_id stays zero-padded 6-digit (`HARD-XXXXXX`) so
+lexicographic max equals numeric max.

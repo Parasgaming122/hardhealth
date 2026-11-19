@@ -4,6 +4,7 @@ import { authCookieOptions } from "./cookie-options";
 
 const migration = readFileSync(new URL("../../supabase/migrations/20261110130000_initial_hard_schema.sql", import.meta.url), "utf8");
 const rateLimitMigration = readFileSync(new URL("../../supabase/migrations/20261110140000_pharmacy_resolve_rate_limit.sql", import.meta.url), "utf8");
+const cnicAtomicMigration = readFileSync(new URL("../../supabase/migrations/20261119100000_cnic_unique_atomic_status.sql", import.meta.url), "utf8");
 const nextConfig = readFileSync(new URL("../../next.config.ts", import.meta.url), "utf8");
 
 describe("security guardrails", () => {
@@ -29,6 +30,33 @@ describe("security guardrails", () => {
     expect(rateLimitMigration).toContain("'pharmacy_resolve_rate_limited'");
     expect(rateLimitMigration).toContain("p_token ~ '[[:space:]]'");
     expect(rateLimitMigration).not.toMatch(/metadata\s*[,)]\s*p_token/i);
+  });
+
+  it("enforces CNIC uniqueness in the database while allowing NULL for self-signups", () => {
+    expect(cnicAtomicMigration).toContain("alter table public.patients add column if not exists cnic text");
+    expect(cnicAtomicMigration).toContain("patients_cnic_format_check");
+    expect(cnicAtomicMigration).toContain("check (cnic is null or cnic ~ '^[0-9]{13}$')");
+    expect(cnicAtomicMigration).toContain("create unique index if not exists patients_cnic_unique_idx");
+    // Partial index: patients without a desk identity check (NULL cnic) never collide.
+    expect(cnicAtomicMigration).toContain("where cnic is not null");
+  });
+
+  it("makes provider status changes atomic and exposes only the audited RPC wrapper", () => {
+    expect(cnicAtomicMigration).toContain("hard_private.admin_set_provider_status");
+    expect(cnicAtomicMigration).toContain("security definer");
+    expect(cnicAtomicMigration).toContain("hard_private.assert_platform_admin()");
+    // Update + audit insert happen in one function (one transaction).
+    expect(cnicAtomicMigration).toContain("'provider_status_change'");
+    // Hard-private implementation revoked from everyone; only the public wrapper is granted.
+    expect(cnicAtomicMigration).toContain(
+      "revoke all on function hard_private.admin_set_provider_status(uuid, text, text) from public, anon, authenticated, service_role"
+    );
+    expect(cnicAtomicMigration).toContain(
+      "grant execute on function public.admin_set_provider_status(uuid, text, text) to authenticated"
+    );
+    expect(cnicAtomicMigration).not.toMatch(
+      /grant execute on function public\.admin_set_provider_status[^;]*to (public|anon)/i
+    );
   });
 
   it("defaults auth cookies to secure cross-site HTTPS and isolates localhost opt-out", () => {

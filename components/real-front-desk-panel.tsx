@@ -43,7 +43,15 @@ export function RealFrontDeskPanel({
   const filteredPatients = useMemo(() => {
     if (!search.trim()) return patients;
     const q = search.toLowerCase();
-    return patients.filter((p) => p.fullName.toLowerCase().includes(q) || p.healthId.toLowerCase().includes(q));
+    const qDigits = search.replace(/[^0-9]/g, "");
+    return patients.filter(
+      (p) =>
+        p.fullName.toLowerCase().includes(q) ||
+        p.healthId.toLowerCase().includes(q) ||
+        // CNIC search: digits-only match so "35202" or a full "35202-1234567-1"
+        // both find the patient regardless of dash formatting.
+        (qDigits.length >= 3 && !!p.cnic && p.cnic.includes(qDigits))
+    );
   }, [patients, search]);
 
   const handleRegister = async () => {
@@ -51,12 +59,17 @@ export function RealFrontDeskPanel({
       setError("Please enter the patient's full name.");
       return;
     }
+    const cnicDigits = cnic.replace(/[^0-9]/g, "");
+    if (cnicDigits.length !== 13) {
+      setError("CNIC must contain exactly 13 digits (e.g. 42101-1234567-1).");
+      return;
+    }
     setError("");
     setSubmitting(true);
     try {
       const res = await registerRealPatient({
         fullName: fullName.trim(),
-        cnic: cnic.trim(),
+        cnic: cnicDigits,
         phone: phone.trim(),
         dob: dob || undefined,
         gender,
@@ -75,6 +88,7 @@ export function RealFrontDeskPanel({
           id: res.patient.id,
           healthId: res.patient.healthId,
           fullName: res.patient.fullName,
+          cnic: cnicDigits,
           dob: dob || null,
           bloodGroup,
           createdAt: new Date().toISOString(),
@@ -321,7 +335,7 @@ export function RealFrontDeskPanel({
               <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
                 className="input !pl-9 !text-[10px]"
-                placeholder="Search by name or Health ID"
+                placeholder="Search by name, Health ID or CNIC"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />
@@ -339,6 +353,7 @@ export function RealFrontDeskPanel({
                     <tr>
                       <th>Health ID</th>
                       <th>Full name</th>
+                      <th>CNIC</th>
                       <th>Blood group</th>
                       <th>Registered date</th>
                       <th className="text-right">Status</th>
@@ -349,11 +364,17 @@ export function RealFrontDeskPanel({
                       <tr key={p.id}>
                         <td className="font-mono font-bold text-emerald-800">{p.healthId}</td>
                         <td><strong>{p.fullName}</strong></td>
+                        <td className="font-mono text-xs text-slate-600">{p.cnic ? `${p.cnic.slice(0, 5)}-${p.cnic.slice(5, 12)}-${p.cnic.slice(12)}` : <span className="text-slate-300">Not recorded</span>}</td>
                         <td>{p.bloodGroup || "O+"}</td>
                         <td className="text-slate-400">{new Date(p.createdAt).toLocaleDateString()}</td>
                         <td className="text-right"><Badge type="verified">Active</Badge></td>
                       </tr>
                     ))}
+                    {filteredPatients.length === 0 && (
+                      <tr>
+                        <td colSpan={6} className="text-center p-6 text-slate-400 text-xs">No patients match this search.</td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
