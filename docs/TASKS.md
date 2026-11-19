@@ -44,18 +44,20 @@ Full inventory of roles/pages/components/APIs vs `HARD_Developer_Brief_v2.md`, d
   write live rows + audit events; status changes fail gracefully + roll back pre-migration.
   Two fixes landed as a result (see CHANGES.md Session 4): props→state sync useEffect, and
   compensating rollback in `updateProviderStatusAction`.
-- [blocked→owner] Apply `supabase/migrations/20261119000000_provider_status_change_audit.sql` via
-  the Supabase SQL editor (sandbox cannot run DDL — IPv6-only direct host, no SQL API for service
-  keys). This is the ONLY thing blocking approve/reject/suspend/reinstate; create/edit already work
-  live. After applying, re-run `node /home/z/my-project/scripts/verify_admin_ui.mjs` (recreate the
-  test admin first via `scripts/create_test_admin.js`) and expect 15/15 with status changes
-  succeeding.
+- [done] **Session 5**: Owner applied migration 20261119000000 via the SQL editor; probe
+  confirmed the live CHECK accepts `provider_status_change`. Rewrote the verify suite for
+  post-migration expectations and ran the FULL status-change lifecycle live on a throwaway
+  org: create → edit → APPROVE → SUSPEND (modal+note) → REINSTATE. 21/21 checks: success
+  toasts, no-reload row updates, DB persistence (suspend→'rejected' mapping), audit rows with
+  correct metadata.action at every step, zero client errors. One cosmetic fix landed: success
+  toast past-tense map (was "suspendd"). Test orgs + test admin cleaned up afterwards.
+  **Phase 2 Part 3 is now fully closed — no blockers remain on the provider manager.**
 
 ### Phase 2 remaining backlog (priority order from Phase 1 audit)
 - [todo] **P2-4** patients.cnic column + DB unique index (duplicate CNIC hard-fail; brief 5.2/11.10).
-  Note: needs DDL — batch with the pending migration when the owner opens the SQL editor.
+  Note: needs DDL — batch with the next migration for the owner's SQL editor.
 - [todo] **P2-5** Doctor prescription templates persisted to DB (table + CRUD + picker in
-  real doctor panel; brief 5.4/7.2).
+  real doctor panel; brief 5.4/7.2). Needs DDL — same batch.
 - [todo] **P2-6** Printable prescription PDF/print view with QR (brief 5.4).
 - [todo] **P2-7** Storage meter 100% upload block (uploads blocked, reads allowed; brief 5.8/11.5).
 - [todo] **P2-8** Platform config table + real config editor persistence (brief 8.7/22, Rule 1).

@@ -99,6 +99,16 @@ export async function updateProviderStatusAction(
   try {
     const { user, admin } = await verifyAdmin();
 
+    // Past-tense labels for the success toast. The DB stores suspensions as
+    // 'rejected' (the CHECK constraint has no 'suspended' value), but the user
+    // intent is "suspended", so label it accordingly.
+    const pastTense: Record<string, string> = {
+      approve: "approved",
+      reject: "rejected",
+      suspend: "suspended",
+      reinstate: "reinstated",
+    };
+
     let newDbStatus = "approved";
     let auditAction = action;
 
@@ -171,7 +181,7 @@ export async function updateProviderStatusAction(
 
     revalidatePath("/admin/providers");
     revalidatePath("/admin/overview");
-    return { error: null, success: `Provider status successfully updated to ${auditAction}d.` };
+    return { error: null, success: `Provider status successfully updated to ${pastTense[auditAction]}.` };
   } catch (err: unknown) {
     return { error: err instanceof Error ? err.message : "Provider update failed.", success: null };
   }

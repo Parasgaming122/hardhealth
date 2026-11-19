@@ -5,7 +5,51 @@ backup zip + tempfile URL produced.
 
 ---
 
-## 2026-11-19 — Session 4 (this session): .env.local wired to live Supabase + full runtime verification
+## 2026-11-19 — Session 5 (this session): migration applied by owner + full status-change lifecycle verified live
+
+**Context**: Owner applied `supabase/migrations/20261119000000_provider_status_change_audit.sql` in
+the Supabase SQL editor ("ran the sql"). Probe confirmed the live CHECK now accepts
+`provider_status_change` (probe row inserted + deleted clean). This was the ONLY item blocking
+approve/reject/suspend/reinstate — the entire Phase 2 Part 3 pipeline is now live-verified.
+
+**Verification performed** (`scripts/verify_admin_ui.mjs`, rewritten for post-migration behavior;
+21/21 checks, screenshots `/tmp/render/s5-*.png`):
+- Login → `/admin/providers` renders the 4 live orgs; filter chips count live rows.
+- Full lifecycle on a throwaway test org (live orgs untouched): create (pending) → edit →
+  **APPROVE** → **SUSPEND** (confirm modal + required note) → **REINSTATE**.
+- Every step: success toast + row updates WITHOUT reload (revalidatePath + D14 prop sync) +
+  DB row persisted correctly + `audit_events.provider_status_change` row with
+  `metadata.action` = approve/suspend/reinstate (asserted via service-role reads).
+- Reinstate restores `approved_at`/`approved_by`; suspend persists as `rejected` in DB (CHECK has
+  no `suspended` value — UI still labels it "suspended" in the toast; chip shows `rejected`).
+- No uncaught client errors.
+
+**Changes made this session** (2 repo files):
+
+1. `lib/admin/provider-actions.ts` — cosmetic fix found during re-verification: the success toast
+   built the past tense as `${auditAction}d`, producing "updated to suspendd." for suspensions.
+   Replaced with an explicit past-tense map (approve→approved, reject→rejected, suspend→suspended,
+   reinstate→reinstated). No behavioral change otherwise.
+2. `scripts/verify_admin_ui.mjs` (outside repo) — rewritten from pre-migration expectations
+   (graceful failures, rollback checks, suspending the live Cedar org) to post-migration
+   expectations (success toasts, live chip updates, service-role audit assertions, full lifecycle
+   on the throwaway org only). Note for future runs: an action fired immediately after a previous
+   action's `revalidatePath` re-render is still in flight needs a settle window — chip polls use
+   12s (an 8s single-shot wait flaked once).
+
+**Cleanup after verification**: both S5 test orgs + temporary test admin deleted; live DB back to
+its 4 original orgs (Metro Health Clinic still `pending` as before); append-only audit rows remain
+by design.
+
+**Quality gate**: `pnpm typecheck` 0 errors · `pnpm test` 17/17.
+
+**Next up (TASKS.md backlog)**: P2-4 (patients.cnic + unique index), P2-11 (atomic
+SECURITY DEFINER status-change RPC), P2-5 (doctor prescription templates) — all need DDL, so a
+single batched migration file will be prepared for the owner's next SQL-editor run.
+
+---
+
+## 2026-11-19 — Session 4: .env.local wired to live Supabase + full runtime verification
 
 **Context**: Owner supplied the real `.env.local` values (Supabase URL, publishable key, service-role
 key, `AUTH_COOKIE_MODE=local-http`, site URL). This unblocked the two Part 3 follow-ups: live-DB
