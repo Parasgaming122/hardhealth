@@ -5,6 +5,84 @@ backup zip + tempfile URL produced.
 
 ---
 
+## 2026-11-19 — Session 8: P2-5 doctor prescription templates + provider_id bug fix
+
+**Context**: Session 7 had finished the auto DB setup but was cut off before its commit/backup — this
+session committed it (7fb7972), cut `hard_phase2_part7_autodbsetup.zip` (tempfile URL below), then
+took the next backlog item: **P2-5 Doctor prescription templates** (brief 5.4/7.2/15 — saved sets of
+common prescriptions; "keep issuing a prescription under about 30 seconds; this is the adoption lever").
+
+### Part 1 — P2-5 feature (code complete; DDL pending for the live DB)
+
+**New migration** `supabase/migrations/20261119200000_doctor_prescription_templates.sql`:
+- `public.prescription_templates` (id, doctor_user_id→auth.users cascade, name 1-80, items jsonb
+  array, created_at, updated_at, `unique (doctor_user_id, name)`) — the exact shape brief 15 sketches.
+- RLS enabled, zero policies, table grants revoked — API roles can never touch it directly.
+- `hard_private.assert_doctor()` + `doctor_list_templates` / `doctor_save_template` /
+  `doctor_delete_template` (SECURITY DEFINER, self-scoped to `doctor_user_id`, every mutation audited
+  as `write/prescription_template`), public SQL wrappers granted to authenticated only (the D15
+  pattern).
+- Save semantics: insert with `ON CONFLICT (doctor_user_id, name) DO UPDATE` — saving a "new"
+  template under an existing name overwrites it (no accidental duplicates in the <30s repeat flow);
+  explicit `p_template_id` update path for renames; 23505 on rename collisions translated to a
+  friendly action-level message.
+- **Param-order rule learned the hard way**: Postgres requires defaulted params LAST
+  (`doctor_save_template(p_name, p_items, p_template_id default null)`) — the first draft had the
+  defaulted param first and every function failed to compile ("input parameters after one with a
+  default value must also have defaults").
+
+**App changes (7 files)**:
+1. `lib/provider/types.ts` — `PrescriptionItemDraft`, `DoctorTemplateSummary`.
+2. `lib/provider/template-actions.ts` (NEW) — `saveDoctorTemplateAction` /
+   `deleteDoctorTemplateAction` called with the USER's client (auth.uid() must resolve inside the
+   RPCs); missing-function errors name migration 20261119200000 (+ the auto-setup alternative).
+3. `lib/provider/real-provider.ts` — `listDoctorTemplates()` read helper; degrades to `[]` with a
+   server-side log when the migration is absent (D10 pattern) so the doctor workspace never 500s.
+4. `app/[workspace]/[[...section]]/page.tsx` — fetches templates for the doctor workspace.
+5. `components/secure-workspace.tsx` — `doctorTemplates` prop pass-through.
+6. `components/real-doctor-panel.tsx` — template chips (tap = load items, X = delete), save-current-
+   items-as-template input, status/error notices, "Saved templates" KPI; props→state sync per D14.
+7. `lib/db/migrations-manifest.ts` (regenerated, now 6 migrations) + `lib/db/auto-setup.test.ts`
+   (list updated to 6) + `lib/supabase/security.test.ts` (guardrail test for the new migration) +
+   `lib/db/auto-setup.e2e.test.ts` (fresh-DB probes for the table + RPC; partial count made
+   count-agnostic).
+
+### Part 2 — pre-existing live bug found & fixed: provider_id NOT NULL violations
+
+The runtime verification caught that `issueRealPrescription` NEVER set `provider_id` — every real
+prescription insert failed with a not-null violation (the flow had never been live-verified before).
+Same latent bug in `dispenseRealPrescription` (pharmacy_dispenses) and `issueRealLabReport`
+(lab_reports). Fix: `requireActiveProviderId(admin, userId, role)` resolves the caller's provider
+from their ACTIVE staff role row and all three inserts (+ their audit events) now carry it. A
+staff user without a provider org gets a friendly "ask an admin to assign one" error. See D20.
+
+### Verification performed
+
+- `pnpm typecheck` 0 errors · `pnpm test` 37/37 · `pnpm build` success.
+- **Real-Postgres e2e** (`HARD_E2E_PG` suite): 4/4 with the 6th migration included — fresh DB builds
+  all 6 (templates table + RPC probed), baseline/partial scenarios still green.
+- **Template RPC functional suite** (`scripts/verify_templates_rpc.mjs`, throwaway Supabase-like DB):
+  21/21 — save/overwrite-by-name/update-by-id/rename; validation (empty name, 0 items, missing
+  medicine, non-numeric quantity); self-scoped listing; cross-doctor edit/delete blocked ("not
+  found"); patient + anonymous rejected with 42501; audit rows for save/update/delete; direct table
+  read as `authenticated` denied.
+- **Live pre-migration runtime verification** (`scripts/verify_premigration_s8.mjs`) 14/14 with a
+  temporary doctor user (created on Cedar Medical Centre): doctor workspace renders the templates
+  KPI + empty state (list RPC missing → clean degrade, no 500); save-template shows the coral notice
+  naming migration 20261119200000; **prescription issuing now works end-to-end** (RX-8W14-IFSF
+  issued live with 1 item, PKR 3500 cost item, audit row — all verified via service-role reads);
+  `/doctor/prescriptions/new` renders the same UI; zero client errors.
+- **Cleanup**: test prescription + items + cost + audit rows deleted; test doctor user deleted;
+  orphaned auto-provisioned patient row (HARD-000103, the D18 trap) deleted — live DB back to its
+  exact baseline (4 orgs, 1 patient HARD-000102, 2 auth users, 0 prescriptions).
+
+**Handed to owner (blocking live template use only)**: apply
+`supabase/migrations/20261119200000_doctor_prescription_templates.sql` in the Supabase SQL editor —
+OR simply set `DATABASE_URL` (Session pooler, port 5432) and restart: the auto DB setup applies it
+automatically and `/setup` will show it flipping from pending to applied.
+
+---
+
 ## 2026-11-19 — Session 7: S6 migration verified live + WordPress-style Auto DB Setup (NEW FEATURE)
 
 **Context**: Owner applied `20261119100000_cnic_unique_atomic_status.sql` ("ran the sql"), closing

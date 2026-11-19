@@ -20,6 +20,7 @@ import type { AdminApprovedProvider, AdminDirectoryUser } from "@/lib/admin/type
 import type { ProviderRecord } from "@/lib/admin/provider-actions";
 import type { RealPatientPortalData } from "@/lib/patient/real-patient";
 import type { RealPatientSummary } from "@/lib/provider/real-provider";
+import type { DoctorTemplateSummary } from "@/lib/provider/types";
 import { pkr } from "@/lib/domain";
 
 const icons = { overview: LayoutDashboard, timeline: Activity, prescriptions: Pill, reports: FileText, expenses: WalletCards, providers: Shield, billing: FileClock, settings: Settings2, patients: UsersRound, collections: WalletCards, resolve: ScanLine, dispenses: Pill, bills: FileClock, staff: UsersRound, ledger: WalletCards, config: Settings2, audit: ClipboardList, users: UsersRound } as const;
@@ -126,6 +127,7 @@ export function SecureWorkspace({
   allAdminProviders,
   patientPortalData,
   realPatients = [],
+  doctorTemplates = [],
 }: {
   workspace: WorkspaceSlug;
   sections: string[];
@@ -136,6 +138,7 @@ export function SecureWorkspace({
   allAdminProviders?: ProviderRecord[];
   patientPortalData?: RealPatientPortalData;
   realPatients?: RealPatientSummary[];
+  doctorTemplates?: DoctorTemplateSummary[];
 }) {
   const router = useRouter();
   const config = workspaceConfig[workspace];
@@ -258,7 +261,7 @@ export function SecureWorkspace({
         ) : workspace === "patient" && patientPortalData ? (
           <RealPatientPortal data={patientPortalData} initialSection={panelSection} onSectionChange={handleSectionChange} />
         ) : workspace === "doctor" ? (
-          <RealDoctorPanel patients={realPatients} section={panelSection} />
+          <RealDoctorPanel patients={realPatients} templates={doctorTemplates} section={panelSection} />
         ) : workspace === "front-desk" ? (
           <RealFrontDeskPanel patients={realPatients} section={panelSection} />
         ) : workspace === "pharmacy" ? (

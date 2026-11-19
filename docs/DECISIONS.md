@@ -232,3 +232,39 @@ ships without contrib). Encapsulated in `lib/db/auto-setup.e2e.test.ts` (runs on
    and every test user that ever hit `/patient/overview` owns an auto-provisioned `patients` row
    (via `ensurePatientRecord`) whose `user_id` becomes NULL on user delete — delete those rows
    while the user still exists or they orphan.
+
+## D19 — Prescription templates are doctor-owned, DB-enforced, name-unique (2026-11-19, Session 8)
+
+Brief 15 sketches `prescription_templates(id, doctor_id, name, items json)` — implemented literally
+with the repo's RPC security posture (D15): RLS + revoked table grants, `hard_private.assert_doctor()`
+gate, every statement scoped to `doctor_user_id = auth.uid()`, `write/prescription_template` audit
+rows. Templates are personal to the doctor (not org-shared) — the brief says doctor_id, and sharing
+is a later product decision. `unique (doctor_user_id, name)` + insert `ON CONFLICT (doctor_user_id,
+name) DO UPDATE` = save-same-name overwrites (the <30s repeat flow never creates duplicates);
+renaming onto an existing name raises 23505, translated to a friendly message in the action.
+Item validation (1-25 items, non-empty medicine, quantity 1-1000) lives in the RPC, mirrored
+client-side in `normalizeItems`. GOTCHA: Postgres requires defaulted function params LAST —
+`doctor_save_template(p_name, p_items, p_template_id default null)`; a defaulted param first fails
+the whole function compile. PostgREST calls pass named args, so arg order never matters to callers.
+
+## D20 — Provider actions MUST resolve provider_id from the caller's role row (2026-11-19, Session 8)
+
+`prescriptions`, `pharmacy_dispenses` and `lab_reports` all carry `provider_id NOT NULL`, but
+`issueRealPrescription` / `dispenseRealPrescription` / `issueRealLabReport` never set it — every
+real insert failed with a not-null violation (caught live in Session 8; the flows had only ever been
+exercised through mock data). All three now call `requireActiveProviderId(admin, userId, role)`:
+resolve the caller's ACTIVE staff role row (`user_roles.provider_id`, oldest first) and use it for
+the insert AND the audit event. A staff user without a provider org gets a friendly actionable
+error. RULE for any future provider-scoped write: derive provider_id server-side from the session —
+never trust it from client input, never omit it.
+
+## D21 — Sandbox process model (2026-11-19, Session 8)
+
+The runtime sandbox reaps background processes BETWEEN tool calls: a dev server started with
+`&`/`nohup`/`setsid` in one Bash call is dead by the next call (even though it stays up within the
+same call). Dev-server + Playwright verification must therefore run in ONE Bash command
+(start server → wait for 200 → run script → `pkill -f "next"`), and the harness kill after the
+command's timeout does the final cleanup. The e2e Postgres cluster on 127.0.0.1:54329 DOES survive
+between calls (it runs outside the reaped process tree). tempfile.org moved its API: uploads are now
+`POST https://tempfile.org/api/upload/local` with field `files` + `expiryHours` (1/6/24/48), not
+`POST /api` with `file` — the old endpoint 404s.

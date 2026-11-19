@@ -126,6 +126,8 @@ d("auto DB setup — real postgres e2e", () => {
          to_regclass('hard_setup.schema_migrations') is not null as bookkeeping,
          to_regprocedure('public.admin_set_provider_status(uuid, text, text)') is not null as rpc,
          to_regprocedure('public.resolve_prescription(text)') is not null as resolve_rpc,
+         to_regclass('public.prescription_templates') is not null as templates,
+         to_regprocedure('public.doctor_save_template(text, jsonb, uuid)') is not null as template_rpc,
          (select count(*)::int from hard_setup.schema_migrations) as versions,
          (select count(*)::int from information_schema.tables where table_schema = 'public') as public_tables
        `
@@ -137,6 +139,8 @@ d("auto DB setup — real postgres e2e", () => {
     expect(row.bookkeeping).toBe(true);
     expect(row.rpc).toBe(true);
     expect(row.resolve_rpc).toBe(true);
+    expect(row.templates).toBe(true);
+    expect(row.template_rpc).toBe(true);
     expect(Number(row.versions)).toBe(MIGRATIONS.length);
     expect(Number(row.public_tables)).toBeGreaterThanOrEqual(12);
 
@@ -222,7 +226,7 @@ d("auto DB setup — real postgres e2e", () => {
 
     const before = await withDbUrl(urlFor(DBS.partial), () => checkDatabaseStatus());
     expect(before.appliedCount).toBe(3);
-    expect(before.pendingCount).toBe(2);
+    expect(before.pendingCount).toBe(MIGRATIONS.length - 3);
 
     const outcome = await withDbUrl(urlFor(DBS.partial), () => runAutoSetup({ trigger: "boot" }));
     expect(outcome.ok).toBe(true);

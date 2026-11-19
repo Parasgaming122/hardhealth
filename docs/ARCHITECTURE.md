@@ -61,6 +61,13 @@ Tables (all RLS-enabled, direct grants revoked for anon/authenticated):
 `provider_organizations, profiles, user_roles, provider_memberships, patients,
 patient_provider_links, visits, prescriptions, prescription_items, pharmacy_dispenses,
 lab_reports, cost_items, invoices, ledger_entries, audit_events`
++ `prescription_templates` (20261119200000, doctor-owned saved sets of common
+prescriptions for the <30s issuing flow, brief 7.2).
+
+Automatic schema management: `instrumentation.ts` applies every pending
+`supabase/migrations/*.sql` on boot via `lib/db/auto-setup.ts` (embedded through
+`lib/db/migrations-manifest.ts`), tracked in `hard_setup.schema_migrations`.
+See DECISIONS.md D17/D18 for the design and the pooler/URL rules.
 
 Key constraints:
 - `provider_organizations.status` CHECK: `('pending','approved','rejected')` — **no 'suspended'**.
@@ -69,8 +76,8 @@ Key constraints:
   `20261119000000_provider_status_change_audit.sql` with `provider_status_change`.
 - `prescriptions.token_digest` bytea UNIQUE (sha256 of token); `max_fills` 1..20; status lifecycle
   active → partly_filled → dispensed / expired / cancelled.
-- `patients` has NO unique index on any CNIC-like column yet (patients table currently stores
-  full_name/dob/gender/blood_group; CNIC uniqueness is app-level only) — Phase 2 gap.
+- `patients.cnic` 13-digit CHECK + partial UNIQUE index (20261119100000, applied live — P2-4 closed);
+  NULL allowed for patient self-signups without a desk identity check.
 
 SECURITY DEFINER surface:
 - `public.get_my_workspace()` — role payload + summary + workspace_read audit.
@@ -80,6 +87,8 @@ SECURITY DEFINER surface:
 - `public.admin_list_users / admin_list_providers / admin_platform_summary` — platform-admin-only
   wrappers over `hard_private.*` implementations.
 - `public.assign_user_role / admin_assign_user_role / admin_revoke_user_role`.
+- `public.doctor_list_templates / doctor_save_template / doctor_delete_template` — doctor-only
+  (20261119200000), self-scoped to `doctor_user_id`, audited as `write/prescription_template`.
 
 Platform-admin writes (user roles, provider org changes) go through the **service-role client**
 (`createSupabaseAdminClient()`) inside `"use server"` actions, after re-verifying the actor's active

@@ -89,13 +89,14 @@ const LOCAL_URL = "postgresql://postgres:postgres@localhost:5432/postgres";
 // ---------------------------------------------------------------------------
 
 describe("migrations manifest", () => {
-  it("embeds the five shipped migrations in chronological order", () => {
+  it("embeds the shipped migrations in chronological order", () => {
     expect(MIGRATIONS.map((m) => m.version)).toEqual([
       "20261110130000",
       "20261110140000",
       "20261111192154",
       "20261119000000",
       "20261119100000",
+      "20261119200000",
     ]);
   });
 
@@ -283,7 +284,7 @@ describe("runAutoSetup", () => {
     });
     return withEnv({ DATABASE_URL: LOCAL_URL, AUTO_DB_SETUP: undefined }, async () => {
       const outcome = await runAutoSetup({ pool: fake.pool });
-      expect(outcome.appliedVersions).toEqual(["20261119000000", "20261119100000"]);
+      expect(outcome.appliedVersions).toEqual(["20261119000000", "20261119100000", "20261119200000"]);
     });
   });
 

@@ -4,6 +4,36 @@ import { createSupabaseAdminClient, createSupabaseServerClient } from "@/lib/sup
 import { revalidatePath } from "next/cache";
 import crypto from "node:crypto";
 
+/**
+ * Resolve the caller's provider organization from their ACTIVE staff role
+ * (doctor / pharmacist / lab_tech). prescriptions, pharmacy_dispenses and
+ * lab_reports all carry a NOT NULL provider_id — the runtime verification in
+ * Session 8 caught that all three actions omitted it (every real insert failed
+ * with a not-null violation), so this is now mandatory for each of them.
+ */
+async function requireActiveProviderId(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  userId: string,
+  role: "doctor" | "pharmacist" | "lab_tech"
+): Promise<string> {
+  const { data: roleRow } = await admin
+    .from("user_roles")
+    .select("provider_id")
+    .eq("user_id", userId)
+    .eq("role", role)
+    .eq("is_active", true)
+    .not("provider_id", "is", null)
+    .order("created_at")
+    .limit(1)
+    .maybeSingle();
+  if (!roleRow?.provider_id) {
+    throw new Error(
+      `Your account has no active ${role.replace("_", " ")} role attached to a provider organization. Ask a provider admin or platform admin to assign one.`
+    );
+  }
+  return roleRow.provider_id as string;
+}
+
 export async function registerRealPatient(input: {
   fullName: string;
   cnic: string;
@@ -185,6 +215,7 @@ export async function issueRealPrescription(input: {
   if (!user) throw new Error("Unauthorized");
 
   const admin = createSupabaseAdminClient();
+  const providerId = await requireActiveProviderId(admin, user.id, "doctor");
 
   // Generate prescription code and token
   const randomSuffix = Math.random().toString(36).slice(2, 6).toUpperCase();
@@ -198,6 +229,7 @@ export async function issueRealPrescription(input: {
     .from("prescriptions")
     .insert({
       patient_id: input.patientId,
+      provider_id: providerId,
       doctor_user_id: user.id,
       prescription_code: prescriptionCode,
       token_digest: tokenDigest,
@@ -246,6 +278,7 @@ export async function issueRealPrescription(input: {
   await admin.from("audit_events").insert({
     actor_user_id: user.id,
     patient_id: input.patientId,
+    provider_id: providerId,
     event_type: "write",
     resource_type: "prescription",
     metadata: { prescription_code: prescriptionCode, items_count: input.items.length },
@@ -273,6 +306,7 @@ export async function dispenseRealPrescription(input: {
   if (!user) throw new Error("Unauthorized");
 
   const admin = createSupabaseAdminClient();
+  const pharmacyProviderId = await requireActiveProviderId(admin, user.id, "pharmacist");
 
   // Find prescription
   const { data: rx, error: rxErr } = await admin
@@ -303,6 +337,7 @@ export async function dispenseRealPrescription(input: {
   // 2. Insert pharmacy dispense record
   await admin.from("pharmacy_dispenses").insert({
     prescription_id: rx.id,
+    provider_id: pharmacyProviderId,
     pharmacist_user_id: user.id,
     fill_number: nextFills,
     otp_verified: true,
@@ -328,6 +363,7 @@ export async function dispenseRealPrescription(input: {
   await admin.from("audit_events").insert({
     actor_user_id: user.id,
     patient_id: rx.patient_id,
+    provider_id: pharmacyProviderId,
     event_type: "dispense",
     resource_type: "prescription",
     metadata: { prescription_code: rx.prescription_code, fill_number: nextFills },
@@ -351,6 +387,7 @@ export async function issueRealLabReport(input: {
   if (!user) throw new Error("Unauthorized");
 
   const admin = createSupabaseAdminClient();
+  const labProviderId = await requireActiveProviderId(admin, user.id, "lab_tech");
 
   const rawToken = crypto.randomBytes(16).toString("hex");
   const tokenDigest = crypto.createHash("sha256").update(rawToken).digest();
@@ -361,6 +398,7 @@ export async function issueRealLabReport(input: {
     .from("lab_reports")
     .insert({
       patient_id: input.patientId,
+      provider_id: labProviderId,
       issued_by: user.id,
       test_type: input.testType,
       report_hash: reportHash,
@@ -391,6 +429,7 @@ export async function issueRealLabReport(input: {
   await admin.from("audit_events").insert({
     actor_user_id: user.id,
     patient_id: input.patientId,
+    provider_id: labProviderId,
     event_type: "write",
     resource_type: "lab_report",
     metadata: { test_type: input.testType, report_hash: reportHash },

@@ -66,9 +66,15 @@ Full inventory of roles/pages/components/APIs vs `HARD_Developer_Brief_v2.md`, d
   Verified with real-Postgres e2e (4/4), real Next boot (applied 5 migrations in 73 ms), manual
   install flow (6/6), token gate (6/6), no-env + bad-URL boots, and a 21/21 regression run.
   See CHANGES.md Session 7 + DECISIONS.md D17/D18.
-- [todo] **P2-5** Doctor prescription templates persisted to DB (table + CRUD + picker in
-  real doctor panel; brief 5.4/7.2). Needs DDL — next migration (auto-setup now applies these
-  automatically once DATABASE_URL is configured).
+- [done] **P2-5** Doctor prescription templates — CLOSED (Session 8, code + DDL verified;
+  DDL applied to live DB pending owner): `prescription_templates` table + doctor-only self-scoped
+  RPCs (assert_doctor, save-with-overwrite-by-name, delete, list) + template chips/save UI in the
+  real doctor panel. Verified: 37/37 unit (incl. new guardrail test), 4/4 real-PG e2e, 21/21 RPC
+  functional suite, 14/14 live pre-migration runtime checks (graceful degrade + hint naming
+  20261119200000). Same session found+fixed the provider_id NOT NULL bug in ALL provider actions
+  (see CHANGES.md Session 8 Part 2 / D20) — real prescriptions now issue end-to-end.
+- [todo] **P2-5b** Repeat-last-prescription (brief 7.2) — one-tap "repeat" on recent prescriptions;
+  natural follow-up now that templates + a working issue flow exist.
 - [todo] **P2-6** Printable prescription PDF/print view with QR (brief 5.4).
 - [todo] **P2-7** Storage meter 100% upload block (uploads blocked, reads allowed; brief 5.8/11.5).
 - [todo] **P2-8** Platform config table + real config editor persistence (brief 8.7/22, Rule 1).
@@ -76,6 +82,8 @@ Full inventory of roles/pages/components/APIs vs `HARD_Developer_Brief_v2.md`, d
 - [todo] **P2-10** Soft delete/deactivation UI for staff + patients w/ confirmation (brief 11.3).
 - [todo] **P2-12** Owner action (optional): add `DATABASE_URL` (Supabase Session pooler, port
   5432) to the environment to switch on auto-setup for future migrations; `/setup` guides it.
+  NOTE (Session 8): this would ALSO auto-apply the pending 20261119200000 templates migration —
+  the alternative is pasting the file into the Supabase SQL editor.
 
 ## Phase 3 — Acceptance-criteria validation (after Phase 2 backlog)
 - [todo] Walk brief Section 20 acceptance criteria end-to-end against the running app.

@@ -5,6 +5,7 @@ import { authCookieOptions } from "./cookie-options";
 const migration = readFileSync(new URL("../../supabase/migrations/20261110130000_initial_hard_schema.sql", import.meta.url), "utf8");
 const rateLimitMigration = readFileSync(new URL("../../supabase/migrations/20261110140000_pharmacy_resolve_rate_limit.sql", import.meta.url), "utf8");
 const cnicAtomicMigration = readFileSync(new URL("../../supabase/migrations/20261119100000_cnic_unique_atomic_status.sql", import.meta.url), "utf8");
+const templatesMigration = readFileSync(new URL("../../supabase/migrations/20261119200000_doctor_prescription_templates.sql", import.meta.url), "utf8");
 const nextConfig = readFileSync(new URL("../../next.config.ts", import.meta.url), "utf8");
 
 describe("security guardrails", () => {
@@ -57,6 +58,28 @@ describe("security guardrails", () => {
     expect(cnicAtomicMigration).not.toMatch(
       /grant execute on function public\.admin_set_provider_status[^;]*to (public|anon)/i
     );
+  });
+
+  it("gives doctors DB-owned prescription templates behind role-gated, self-scoped RPCs", () => {
+    expect(templatesMigration).toContain("create table if not exists public.prescription_templates");
+    expect(templatesMigration).toContain("alter table public.prescription_templates enable row level security");
+    // No direct API access — RLS has no policies AND table grants are revoked.
+    expect(templatesMigration).toContain("revoke all on public.prescription_templates from anon, authenticated");
+    expect(templatesMigration).not.toMatch(/create policy[^;]*on public\.prescription_templates/i);
+    // Every RPC asserts an active doctor role and scopes to the caller's own rows.
+    expect(templatesMigration).toContain("hard_private.assert_doctor()");
+    expect((templatesMigration.match(/doctor_user_id = v_actor/g) ?? []).length).toBeGreaterThanOrEqual(3);
+    // Hard-private implementations revoked from everyone; public wrappers granted to authenticated only.
+    expect(templatesMigration).toContain(
+      "revoke all on function hard_private.doctor_save_template(text, jsonb, uuid) from public, anon, authenticated, service_role"
+    );
+    expect(templatesMigration).toContain(
+      "grant execute on function public.doctor_save_template(text, jsonb, uuid) to authenticated"
+    );
+    expect(templatesMigration).not.toMatch(/grant execute on function public\.doctor_[a-z_]+\([^)]*\) to (public|anon)/i);
+    // Templates are doctor-unique by name and saving the same name overwrites (the <30s repeat flow).
+    expect(templatesMigration).toContain("unique (doctor_user_id, name)");
+    expect(templatesMigration).toContain("on conflict (doctor_user_id, name) do update");
   });
 
   it("defaults auth cookies to secure cross-site HTTPS and isolates localhost opt-out", () => {

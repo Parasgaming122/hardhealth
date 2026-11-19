@@ -6,7 +6,8 @@ import type { AdminApprovedProvider, AdminDirectoryUser } from "@/lib/admin/type
 import { getAdminDirectoryData } from "@/lib/admin/actions";
 import { listAllAdminProviders, type ProviderRecord } from "@/lib/admin/provider-actions";
 import { getRealPatientPortalData, type RealPatientPortalData } from "@/lib/patient/real-patient";
-import { listRealPatients, type RealPatientSummary } from "@/lib/provider/real-provider";
+import { listRealPatients, listDoctorTemplates, type RealPatientSummary } from "@/lib/provider/real-provider";
+import type { DoctorTemplateSummary } from "@/lib/provider/types";
 
 export const dynamic = "force-dynamic";
 
@@ -83,6 +84,13 @@ export default async function WorkspaceRoute({ params }: { params: Promise<{ wor
     realPatients = await listRealPatients();
   }
 
+  // Brief 7.2: saved prescription templates for the <30s issuing flow. Degrades to
+  // an empty list when the templates migration has not been applied yet.
+  let doctorTemplates: DoctorTemplateSummary[] | undefined;
+  if (workspace === "doctor") {
+    doctorTemplates = await listDoctorTemplates();
+  }
+
   return (
     <SecureWorkspace
       workspace={workspace}
@@ -94,6 +102,7 @@ export default async function WorkspaceRoute({ params }: { params: Promise<{ wor
       allAdminProviders={allAdminProviders}
       patientPortalData={patientPortalData}
       realPatients={realPatients}
+      doctorTemplates={doctorTemplates}
     />
   );
 }
