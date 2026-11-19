@@ -363,6 +363,7 @@ Dev server confirmed running; tsc 0 errors; vitest 17/17 at that time.
 
 | zip | uploaded at | URL | expires |
 |---|---|---|---|
+| hard_phase2_part7_autodbsetup.zip (incl. .git history, session 7 commit 7fb7972; .env.local EXCLUDED) | 2026-11-19 | https://tempfile.org/mPaV3rMuU4J/ | +48h |
 | hard_phase2_part6_cnic_atomic.zip (incl. .git history, session 6 commit; .env.local EXCLUDED) | 2026-11-19 | https://tempfile.org/HR4ifvgD5ym/ | +48h |
 | hard_phase2_part5_verified.zip (incl. .git history, commit 197a452; .env.local EXCLUDED) | 2026-11-19 | https://tempfile.org/841DVfgLHLj/ | +48h |
 | hard_phase2_part4_envcheck.zip (incl. .git history, commit 1082cff; .env.local EXCLUDED) | 2026-11-19 | https://tempfile.org/k3TZi6t1QrD/ | +48h |
