@@ -561,6 +561,255 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .secure-profile-fact > span { color: #9aa6a6; font-size: 9px; }
 .secure-profile-fact > strong { color: #4a6669; font-size: 10px; line-height: 1.5; }
 .secure-footer-note { display: flex; align-items: center; gap: 7px; margin: 18px 0 0; color: #98a5a5; font-size: 9px; }
+.secure-override-note { display: flex; align-items: flex-start; gap: 10px; margin: 0 0 20px; padding: 12px 15px; border: 1px solid #f0dfc0; border-radius: 11px; background: #fffbf3; color: #7a5a1e; font-size: 11px; line-height: 1.6; }
+.secure-override-note svg { flex: none; margin-top: 2px; color: #c9821a; }
+.secure-override-note strong { color: #5e4210; }
+
+/* ── Admin sidebar shortcut panel ─────────────────────────── */
+.secure-admin-shortcuts { margin-top: 18px; border: 1px solid #e3ece8; border-radius: 11px; background: #f8fbf9; overflow: hidden; }
+.secure-admin-shortcuts > summary { display: flex; align-items: center; gap: 7px; padding: 9px 12px; cursor: pointer; font-size: 9px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: #5a7a7d; list-style: none; user-select: none; }
+.secure-admin-shortcuts > summary::-webkit-details-marker { display: none; }
+.secure-admin-shortcuts > summary:hover { background: #edf5f1; color: #2a6660; }
+.secure-admin-shortcuts > summary svg { flex: none; color: var(--teal); }
+.secure-admin-shortcuts nav { display: flex; flex-direction: column; padding: 4px 6px 7px; border-top: 1px solid #e3ece8; }
+.secure-admin-shortcuts nav a { display: block; padding: 6px 10px; border-radius: 8px; font-size: 10px; font-weight: 650; color: #4f7175; text-decoration: none; transition: background .13s ease, color .13s ease; }
+.secure-admin-shortcuts nav a:hover { background: #e8f4ef; color: #1a6660; }
+
+/* ── Admin header workspace switcher (topbar) ─────────────── */
+.secure-admin-switcher { position: relative; }
+.secure-admin-switcher > summary { display: inline-flex; align-items: center; gap: 6px; height: 33px; padding: 0 11px; border: 1px solid #dce7e3; border-radius: 9px; background: #fff; color: #4f7175; font-size: 10px; font-weight: 750; cursor: pointer; list-style: none; user-select: none; white-space: nowrap; transition: border-color .14s, background .14s; }
+.secure-admin-switcher > summary::-webkit-details-marker { display: none; }
+.secure-admin-switcher > summary:hover { border-color: #aed1c7; background: #f4faf7; color: #1a6660; }
+.secure-admin-switcher > summary svg { flex: none; color: var(--teal); }
+.secure-admin-switcher-menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 50; min-width: 180px; padding: 5px; border: 1px solid #dce9e3; border-radius: 12px; background: #fff; box-shadow: 0 14px 36px rgba(21,54,61,.13); animation: hard-pop .13s ease-out; }
+.secure-admin-switcher-menu a { display: block; padding: 7px 11px; border-radius: 8px; font-size: 11px; font-weight: 650; color: #3d6568; text-decoration: none; transition: background .12s ease, color .12s ease; }
+.secure-admin-switcher-menu a:hover { background: #edf5f1; color: #1a6660; }
+
+/* ── Admin User Manager & Roles Directory ─────────────────── */
+.secure-admin-directory {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.secure-admin-callout {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 18px;
+  background: #f0f7f5;
+  border: 1px solid #cce5dd;
+  border-radius: 12px;
+  color: #1e5650;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.secure-admin-callout svg {
+  color: #117c72;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.secure-admin-callout strong {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  color: #11534c;
+  margin-bottom: 2px;
+}
+.secure-admin-callout p {
+  margin: 0;
+  color: #386762;
+}
+.secure-admin-boundary {
+  margin: 0;
+  font-size: 11px;
+  color: #7b8e90;
+  line-height: 1.5;
+}
+.secure-admin-grant {
+  background: #fff;
+}
+.admin-grant-grid {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr 1.2fr auto;
+  gap: 14px;
+  align-items: flex-end;
+  margin-top: 16px;
+}
+@media (max-width: 900px) {
+  .admin-grant-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.secure-field select {
+  width: 100%;
+  min-height: 43px;
+  border: 1px solid #dce7e3;
+  border-radius: 9px;
+  outline: none;
+  padding: 0 12px;
+  color: #24464a;
+  background: #fff;
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.secure-field select:focus {
+  border-color: #58a99b;
+  box-shadow: 0 0 0 3px rgba(31,137,122,.12);
+}
+.secure-field select:disabled {
+  background: #f4f6f5;
+  color: #92a2a4;
+  cursor: not-allowed;
+}
+.admin-grant-button {
+  height: 43px;
+  padding: 0 20px;
+  white-space: nowrap;
+}
+.admin-directory-search {
+  display: flex;
+  gap: 10px;
+  margin: 16px 0 12px;
+}
+.admin-directory-search input {
+  flex: 1;
+  min-height: 41px;
+  border: 1px solid #dce7e3;
+  border-radius: 9px;
+  padding: 0 14px;
+  font-size: 13px;
+  color: #24464a;
+  background: #fff;
+  outline: none;
+}
+.admin-directory-search input:focus {
+  border-color: #58a99b;
+  box-shadow: 0 0 0 3px rgba(31,137,122,.12);
+}
+.admin-directory-table-wrap {
+  overflow-x: auto;
+  border: 1px solid #e4ece8;
+  border-radius: 12px;
+  background: #fff;
+}
+.admin-directory-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 11px;
+}
+.admin-directory-table th {
+  padding: 12px 16px;
+  background: #f8faf9;
+  border-bottom: 1px solid #e4ece8;
+  color: #5d7578;
+  font-size: 10px;
+  font-weight: 750;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+.admin-directory-table td {
+  padding: 14px 16px;
+  border-bottom: 1px solid #edf2f0;
+  vertical-align: middle;
+  color: #334d50;
+}
+.admin-directory-table tr:last-child td {
+  border-bottom: none;
+}
+.admin-directory-table td > strong {
+  display: block;
+  font-size: 12px;
+  color: #1a393d;
+  font-weight: 700;
+}
+.admin-directory-table td > span {
+  display: block;
+  font-size: 11px;
+  color: #587376;
+  margin-top: 2px;
+}
+.admin-directory-table td > small {
+  display: block;
+  font-size: 9px;
+  font-family: monospace;
+  color: #92a4a6;
+  margin-top: 3px;
+}
+.admin-role-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.admin-role-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+.admin-role-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 7px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+.admin-role-chip.active {
+  background: #e7f5f1;
+  color: #16685f;
+  border: 1px solid #bfe3d8;
+}
+.admin-role-chip.inactive {
+  background: #f5f5f5;
+  color: #8c8c8c;
+  border: 1px solid #e0e0e0;
+}
+.admin-role-chip.pending {
+  background: #fff9e6;
+  color: #8c6b12;
+  border: 1px solid #fae69e;
+}
+.admin-revoke-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: 1px solid #f2cac6;
+  background: #fff5f4;
+  color: #ab3b34;
+  font-size: 10px;
+  font-weight: 650;
+  cursor: pointer;
+  transition: all .13s ease;
+}
+.admin-revoke-button:hover:not(:disabled) {
+  background: #fce8e6;
+  border-color: #e59f99;
+  color: #8a241e;
+}
+.admin-revoke-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.admin-directory-empty {
+  text-align: center;
+  padding: 30px !important;
+  color: #87999b;
+}
+.secure-success {
+  margin: 0;
+  border: 1px solid #bfe6d9;
+  border-radius: 9px;
+  padding: 10px 12px;
+  color: #126359;
+  background: #edf8f4;
+  font-size: 11px;
+  line-height: 1.5;
+}
 
 @media (max-width: 1000px) {
   .hard-home-hero { grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 32px; }

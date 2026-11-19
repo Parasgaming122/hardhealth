@@ -1,11 +1,23 @@
+"use client";
+
+import { useCallback, useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Activity, BadgeCheck, Building2, ClipboardList, FileClock, FileText, LayoutDashboard, LogOut, Pill, ScanLine, Settings2, Shield, Stethoscope, UsersRound, WalletCards } from "lucide-react";
-import { PharmacyTokenResolver } from "@/components/pharmacy-token-resolver";
+import { Activity, ArrowRight, BadgeCheck, Building2, ClipboardList, Database, FileClock, FilePlus2, FileText, LayoutDashboard, LogOut, Pill, Play, ScanLine, Settings2, Shield, Sparkles, Stethoscope, UsersRound, WalletCards } from "lucide-react";
 import { AdminUserManager } from "@/components/admin-user-manager";
 import { SecureMobileNav } from "@/components/secure-mobile-nav";
+import { RealPatientPortal } from "@/components/real-patient-portal";
+import { RealFrontDeskPanel } from "@/components/real-front-desk-panel";
+import { RealDoctorPanel } from "@/components/real-doctor-panel";
+import { RealPharmacyPanel } from "@/components/real-pharmacy-panel";
+import { RealLabPanel } from "@/components/real-lab-panel";
+import { ProviderAdminPanel } from "@/components/panels/provider-admin-panel";
+import { PlatformAdminPanel } from "@/components/panels/platform-admin-panel";
 import { signOutAction } from "@/app/login/actions";
 import { workspaceConfig, workspaceSlugs, isPlatformAdmin, type WorkspacePayload, type WorkspaceSlug } from "@/lib/auth/roles";
 import type { AdminApprovedProvider, AdminDirectoryUser } from "@/lib/admin/types";
+import type { RealPatientPortalData } from "@/lib/patient/real-patient";
+import type { RealPatientSummary } from "@/lib/provider/real-provider";
 import { pkr } from "@/lib/domain";
 
 const icons = { overview: LayoutDashboard, timeline: Activity, prescriptions: Pill, reports: FileText, expenses: WalletCards, providers: Shield, billing: FileClock, settings: Settings2, patients: UsersRound, collections: WalletCards, resolve: ScanLine, dispenses: Pill, bills: FileClock, staff: UsersRound, ledger: WalletCards, config: Settings2, audit: ClipboardList, users: UsersRound } as const;
@@ -28,21 +40,105 @@ function metricLabel(key: string) {
   return labels[key] ?? key.replaceAll("_", " ");
 }
 
-export function SecureWorkspace({ workspace, sections, pageTitle, access, adminUsers, adminProviders }: {
+function mapSectionForPanel(workspace: WorkspaceSlug, sections: string[]): string {
+  const key = sections.length ? sections.join("/") : "overview";
+  if (workspace === "patient") {
+    const map: Record<string, string> = {
+      overview: "Overview", timeline: "Timeline", prescriptions: "Prescriptions", reports: "Reports",
+      expenses: "Expenses", providers: "Providers & Access", billing: "Billing", settings: "Settings",
+    };
+    return map[key] ?? "Overview";
+  }
+  if (workspace === "doctor") {
+    const map: Record<string, string> = {
+      overview: "Today", patients: "Patient history", "prescriptions/new": "New prescription", prescriptions: "Recent prescriptions",
+    };
+    return map[key] ?? "Today";
+  }
+  if (workspace === "front-desk") {
+    const map: Record<string, string> = {
+      overview: "Overview", "patients/new": "Register patient", patients: "Register patient", collections: "Daily collections",
+    };
+    return map[key] ?? "Overview";
+  }
+  if (workspace === "pharmacy") {
+    const map: Record<string, string> = {
+      overview: "Scan / resolve", resolve: "Scan / resolve", dispenses: "Recent dispenses", bills: "Recent dispenses",
+    };
+    return map[key] ?? "Scan / resolve";
+  }
+  if (workspace === "lab") {
+    const map: Record<string, string> = {
+      overview: "New report", "reports/new": "New report", reports: "Reports issued",
+    };
+    return map[key] ?? "New report";
+  }
+  if (workspace === "provider-admin") {
+    const map: Record<string, string> = {
+      overview: "Overview", staff: "Staff", ledger: "Earnings ledger",
+    };
+    return map[key] ?? "Overview";
+  }
+  if (workspace === "admin") {
+    const map: Record<string, string> = {
+      overview: "Overview", providers: "Provider approvals", config: "Configuration", audit: "Audit log", users: "users",
+    };
+    return map[key] ?? "Overview";
+  }
+  return "Overview";
+}
+
+function panelSectionToHref(workspace: WorkspaceSlug, section: string): string {
+  if (workspace === "patient") {
+    const map: Record<string, string> = {
+      Overview: "/patient/overview", Timeline: "/patient/timeline", Prescriptions: "/patient/prescriptions",
+      Reports: "/patient/reports", Expenses: "/patient/expenses", "Providers & Access": "/patient/providers",
+      Billing: "/patient/billing", Settings: "/patient/settings",
+    };
+    return map[section] ?? "/patient/overview";
+  }
+  if (workspace === "doctor") {
+    const map: Record<string, string> = {
+      Today: "/doctor/overview", "Patient history": "/doctor/patients",
+      "New prescription": "/doctor/prescriptions/new", "Recent prescriptions": "/doctor/prescriptions",
+    };
+    return map[section] ?? "/doctor/overview";
+  }
+  if (workspace === "front-desk") {
+    const map: Record<string, string> = {
+      Overview: "/front-desk/overview", "Register patient": "/front-desk/patients/new",
+      "Outstanding invoices": "/front-desk/collections", "Daily collections": "/front-desk/collections",
+    };
+    return map[section] ?? "/front-desk/overview";
+  }
+  return `/${workspace}/overview`;
+}
+
+export function SecureWorkspace({
+  workspace,
+  sections,
+  pageTitle,
+  access,
+  adminUsers,
+  adminProviders,
+  patientPortalData,
+  realPatients = [],
+}: {
   workspace: WorkspaceSlug;
   sections: string[];
   pageTitle: string;
   access: WorkspacePayload;
   adminUsers?: AdminDirectoryUser[];
   adminProviders?: AdminApprovedProvider[];
+  patientPortalData?: RealPatientPortalData;
+  realPatients?: RealPatientSummary[];
 }) {
+  const router = useRouter();
   const config = workspaceConfig[workspace];
   const roles = access.roles ?? [];
   const hasAdminRole = isPlatformAdmin(roles);
   const hasRequestedRole = roles.some((entry) => entry.role === config.role);
   const adminOverride = hasAdminRole && workspace !== "admin" && !hasRequestedRole;
-  const summary = access.summary ?? {};
-  const metrics = Object.entries(summary).slice(0, 4);
   const isPatient = workspace === "patient";
   const isPharmacy = workspace === "pharmacy";
   const isAdminWorkspace = workspace === "admin";
@@ -50,6 +146,13 @@ export function SecureWorkspace({ workspace, sections, pageTitle, access, adminU
   const displayName = access.profile?.display_name || config.label;
   const currentKey = sections.length ? sections.join("/") : "overview";
   const showAdminUsers = isAdminWorkspace && currentKey === "users";
+
+  const panelSection = mapSectionForPanel(workspace, sections);
+
+  const handleSectionChange = useCallback((nextSection: string) => {
+    const href = panelSectionToHref(workspace, nextSection);
+    router.push(href);
+  }, [router, workspace]);
 
   return <div className={`shell secure-shell ${isPatient ? "shell-patient" : ""}`}>
     <aside className={`sidebar ${isPatient ? "sidebar-patient" : ""}`}>
@@ -62,17 +165,20 @@ export function SecureWorkspace({ workspace, sections, pageTitle, access, adminU
           return <Link key={page.key} href={pageHref(workspace, page.key)} aria-current={active ? "page" : undefined} className={`nav-link ${active ? "active" : ""}`}><Icon className="nav-icon" strokeWidth={1.8} /><span>{page.label}</span></Link>;
         })}
       </nav>
-      {hasAdminRole && <details className="secure-admin-shortcuts"><summary><Shield size={14} /> All H.A.R.D workspaces</summary><nav aria-label="Administrator workspace shortcuts">{workspaceSlugs.map((slug) => <Link key={slug} href={`/${slug}/overview`}>{workspaceConfig[slug].label}</Link>)}</nav></details>}
       <div className="side-bottom">
         <div className="secure-scope-note"><span className="secure-dot" />{isPharmacy ? "Single-prescription scope" : isAdminWorkspace ? "Non-clinical administration" : adminOverride ? "Admin route · records remain scoped" : "Role-scoped access"}</div>
-        <div className="sidebar-foot"><BadgeCheck size={13} /> Supabase-authenticated preview</div>
+        <div className="sidebar-foot"><BadgeCheck size={13} /> Supabase-authenticated session</div>
         <form action={signOutAction}><button type="submit" className="nav-link mt-3 w-full text-left"><LogOut className="nav-icon" /><span>Sign out</span></button></form>
       </div>
     </aside>
 
     <div className="workspace">
       <header className="topbar">
-        <div className="topbar-left"><div className="crumb"><Link href="/" className="text-slate-500 no-underline">H.A.R.D</Link><span className="mx-1 text-slate-300">/</span><strong>{config.label}</strong></div><span className="secure-badge"><span className="secure-dot" /> Private workspace</span></div>
+        <div className="topbar-left">
+          <div className="crumb"><Link href="/" className="text-slate-500 no-underline">H.A.R.D</Link><span className="mx-1 text-slate-300">/</span><strong>{config.label}</strong></div>
+          <span className="secure-badge"><span className="secure-dot" /> Authenticated account</span>
+          <Link href="/demo" className="demo-pill inline-flex items-center gap-1.5 no-underline ml-2" title="Switch roles instantly and run the 5-7 minute prototype demo loop"><Play size={10} fill="currentColor" /> Explore Offline Demo</Link>
+        </div>
         <div className="topbar-right">
           {hasAdminRole && <details className="secure-admin-switcher"><summary><Shield size={14} /> Workspaces</summary><div className="secure-admin-switcher-menu">{workspaceSlugs.map((slug) => <Link key={slug} href={`/${slug}/overview`}>{workspaceConfig[slug].label}</Link>)}</div></details>}
           <span className="avatar" aria-label={`Signed in as ${displayName}`}>{displayName.trim().slice(0, 2).toUpperCase()}</span>
@@ -81,38 +187,84 @@ export function SecureWorkspace({ workspace, sections, pageTitle, access, adminU
       </header>
 
       <main className="content secure-content">
-        <div className="secure-page-heading"><div><p className="secure-eyebrow">{config.label} · {pageTitle}</p><h1>{isPatient ? "Your care, accounted for." : `${config.label} workspace`}</h1><p>{isPatient ? "A private view of your costs, care records and access." : `Role-authorized tools and summaries for ${config.label.toLowerCase()} work.`}</p></div><span className="verified-chip"><BadgeCheck size={14} />{adminOverride ? "Admin route access" : "Access assigned"}</span></div>
-
-        {adminOverride && <div className="secure-override-note" role="status"><Shield size={15} /><span><strong>Platform Admin route access.</strong> You may open this H.A.R.D workspace, but existing patient/provider links and clinical-record policies are unchanged. No clinical-record data is revealed by this override.</span></div>}
-
-        {showAdminUsers ? <AdminUserManager initialUsers={adminUsers ?? []} providers={adminProviders ?? []} /> : <>
-          <section className="secure-metrics" aria-label="Workspace summary">
-            {metrics.length ? metrics.map(([key, value], index) => <article className={`secure-metric metric-${index}`} key={key}><div className="secure-metric-label">{metricLabel(key)}</div><div className="secure-metric-value">{metricValue(key, value)}</div><div className="secure-metric-foot">{isPatient ? "From your linked records" : "Within the database-authorized scope"}</div></article>) : <article className="secure-empty-metric"><span className="secure-dot" />No records are linked to this account yet.</article>}
-          </section>
-
-          <div className="secure-main-grid">
-            <section className="secure-panel">
-              <div className="secure-panel-head"><div><p className="secure-eyebrow">{pageTitle}</p><h2>{sections.length === 0 || sections[0] === "overview" ? "Workspace overview" : pageTitle}</h2></div><span className="verified-chip"><BadgeCheck size={13} /> Source-controlled</span></div>
-              <p className="secure-panel-copy">{adminOverride ? "Platform Admin route access is enabled, but it does not bypass patient-provider links or clinical-record policies. This preview keeps those data boundaries unchanged." : isPatient ? "Your current authenticated account is connected to the H.A.R.D development database. Only records explicitly linked to your patient profile can appear here." : isPharmacy ? "Pharmacy access is intentionally narrow. This workspace has no patient search, directory, Health ID view, or record-history navigation." : isAdminWorkspace ? "Manage H.A.R.D account access, roles, provider metadata and aggregate finance. This screen does not widen identifiable clinical-record access while the privacy scope is pending." : "Only data within your assigned role and active provider membership can be loaded. The database applies authorization independently of these screens."}</p>
-              {isPharmacy && sections[0] === "resolve" ? <PharmacyTokenResolver /> : <>
-                <div className="secure-record-placeholder"><span className="secure-record-icon">{isPatient ? <Activity size={18} /> : isPharmacy ? <ScanLine size={18} /> : isAdminWorkspace ? <Building2 size={18} /> : <Stethoscope size={18} />}</span><div><strong>{metrics.some(([, value]) => Number(value) > 0) ? "Authorized summary loaded" : "No linked records yet"}</strong><p>{metrics.some(([, value]) => Number(value) > 0) ? "The counts above came from a role-checked database function and the workspace read was logged." : "This development project starts without patient data. Use the separate fictional demo to explore complete sample workflows."}</p></div></div>
-                <Link href="/demo" className="secure-secondary mt-6 inline-flex">Open fictional demo</Link>
-              </>}
-            </section>
-
-            <aside className="secure-profile-panel">
-              <div className="secure-profile-top"><span className="secure-avatar">{displayName.trim().slice(0, 1).toUpperCase()}</span><span className="verified-chip"><BadgeCheck size={13} /> Verified session</span></div>
-              <p className="secure-eyebrow mt-7">Signed-in profile</p><h2>{displayName}</h2>
-              {identity?.health_id ? <p className="secure-health-id">{identity.health_id}</p> : <p className="secure-health-id">{config.label} · restricted scope</p>}
-              <div className="secure-divider" />
-              <div className="secure-profile-fact"><span>Organization</span><strong>{roles.find((entry) => entry.role === config.role)?.provider_name || (isPatient ? "Patient account" : "Assigned membership")}</strong></div>
-              <div className="secure-profile-fact"><span>Data mode</span><strong>Development · synthetic records only</strong></div>
-              <div className="secure-profile-fact"><span>Privacy boundary</span><strong>{isPharmacy ? "One prescription per token" : hasAdminRole ? "Clinical scope unchanged" : "Role and link checked"}</strong></div>
-            </aside>
+        <div className="secure-page-heading">
+          <div>
+            <p className="secure-eyebrow">{config.label} · {pageTitle}</p>
+            <h1>{isPatient ? "Your care, accounted for." : `${config.label} workspace`}</h1>
+            <p>{isPatient ? `Signed in as ${displayName} (${patientPortalData?.patient.healthId || "H.A.R.D Patient"}). A private view of your costs and records.` : `Role-authorized tools and summaries for ${config.label.toLowerCase()} work.`}</p>
           </div>
-        </>}
+          <span className="verified-chip"><BadgeCheck size={14} />{adminOverride ? "Admin route access" : "Database verified"}</span>
+        </div>
 
-        <p className="secure-footer-note"><Shield size={14} /> This preview is not approved for real patient information or production care decisions.</p>
+        {adminOverride && <div className="secure-override-note" role="status"><Shield size={15} /><span><strong>Platform Admin route access.</strong> You may open this H.A.R.D workspace, but clinical-record policies remain in effect.</span></div>}
+
+        {/* Real Workspace Content */}
+        {workspace === "admin" ? (
+          currentKey === "users" ? (
+            <AdminUserManager initialUsers={adminUsers ?? []} providers={adminProviders ?? []} />
+          ) : currentKey === "providers" ? (
+            <div className="space-y-6">
+              <PlatformAdminPanel section="Provider approvals" />
+              <section className="secure-panel">
+                <div className="secure-panel-head">
+                  <div>
+                    <p className="secure-eyebrow">Approved organizations</p>
+                    <h2>Registered healthcare providers</h2>
+                  </div>
+                  <span className="verified-chip">{(adminProviders ?? []).length} approved</span>
+                </div>
+                <div className="admin-directory-table-wrap mt-4">
+                  <table className="admin-directory-table">
+                    <thead>
+                      <tr>
+                        <th scope="col">Organization</th>
+                        <th scope="col">Type</th>
+                        <th scope="col">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(adminProviders ?? []).map((p) => (
+                        <tr key={p.provider_id}>
+                          <td><strong>{p.provider_name}</strong></td>
+                          <td className="capitalize">{p.provider_type}</td>
+                          <td><span className="admin-role-chip active">Approved</span></td>
+                        </tr>
+                      ))}
+                      {!(adminProviders ?? []).length && (
+                        <tr>
+                          <td colSpan={3} className="admin-directory-empty">No approved providers configured yet.</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            </div>
+          ) : currentKey === "config" ? (
+            <PlatformAdminPanel section="Configuration" />
+          ) : currentKey === "audit" ? (
+            <PlatformAdminPanel section="Audit log" />
+          ) : (
+            <div className="space-y-6">
+              <AdminUserManager initialUsers={adminUsers ?? []} providers={adminProviders ?? []} />
+              <PlatformAdminPanel section="Overview" />
+            </div>
+          )
+        ) : workspace === "patient" && patientPortalData ? (
+          <RealPatientPortal data={patientPortalData} initialSection={panelSection} onSectionChange={handleSectionChange} />
+        ) : workspace === "doctor" ? (
+          <RealDoctorPanel patients={realPatients} section={panelSection} />
+        ) : workspace === "front-desk" ? (
+          <RealFrontDeskPanel patients={realPatients} section={panelSection} />
+        ) : workspace === "pharmacy" ? (
+          <RealPharmacyPanel section={panelSection} />
+        ) : workspace === "lab" ? (
+          <RealLabPanel patients={realPatients} section={panelSection} />
+        ) : workspace === "provider-admin" ? (
+          <ProviderAdminPanel section={panelSection} />
+        ) : null}
+
+        <p className="secure-footer-note"><Shield size={14} /> Connected to H.A.R.D Supabase database. Real account records only.</p>
       </main>
       <SecureMobileNav workspace={workspace} sections={sections} />
     </div>

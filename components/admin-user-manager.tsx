@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useEffect, useState } from "react";
 import { Search, ShieldCheck, UserCog, UserRoundX } from "lucide-react";
 import { grantAdminRoleAction, revokeAdminRoleAction, searchAdminDirectoryAction, type AdminRoleActionState } from "@/lib/admin/actions";
 import type { AdminApprovedProvider, AdminDirectoryUser } from "@/lib/admin/types";
@@ -31,6 +31,10 @@ export function AdminUserManager({ initialUsers, providers }: { initialUsers: Ad
   const [grantState, grantFormAction, grantPending] = useActionState(grantAdminRoleAction, initialActionState);
   const [revokeState, revokeFormAction, revokePending] = useActionState(revokeAdminRoleAction, initialActionState);
   const providerScoped = roleOptions.find((role) => role.value === selectedRole)?.providerScoped ?? false;
+
+  useEffect(() => {
+    setUsers(initialUsers);
+  }, [initialUsers]);
 
   async function runSearch(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();

@@ -237,7 +237,7 @@ export const compactPkr = (amount: number) =>
       : pkr(amount);
 
 export const dateLabel = (value: string, options?: Intl.DateTimeFormatOptions) =>
-  new Intl.DateTimeFormat("en-PK", options ?? { day: "numeric", month: "short", year: "numeric" }).format(new Date(value));
+  new Intl.DateTimeFormat("en-PK", { timeZone: "Asia/Karachi", ...(options ?? { day: "numeric", month: "short", year: "numeric" }) }).format(new Date(value));
 
 export const relativeDate = (value: string) => {
   const days = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 86400000));

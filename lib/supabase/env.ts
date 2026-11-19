@@ -8,3 +8,14 @@ export function getSupabasePublicConfig() {
 
   return { url, publishableKey };
 }
+
+export function getSupabaseAdminConfig() {
+  const { url } = getSupabasePublicConfig();
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!serviceRoleKey) {
+    throw new Error("Supabase admin secret key is missing. Set SUPABASE_SERVICE_ROLE_KEY.");
+  }
+
+  return { url, serviceRoleKey };
+}

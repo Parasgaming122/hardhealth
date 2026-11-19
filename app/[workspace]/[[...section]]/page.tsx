@@ -1,8 +1,12 @@
 import { notFound, redirect } from "next/navigation";
 import { isAllowedWorkspacePath, isAssignedToWorkspace, isPlatformAdmin, sectionTitle, workspaceConfig, type WorkspaceSlug, type WorkspacePayload } from "@/lib/auth/roles";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createSupabaseServerClient, createSupabaseAdminClient } from "@/lib/supabase/server";
 import { SecureWorkspace } from "@/components/secure-workspace";
 import type { AdminApprovedProvider, AdminDirectoryUser } from "@/lib/admin/types";
+import { getAdminDirectoryData } from "@/lib/admin/actions";
+import { listAllAdminProviders, type ProviderRecord } from "@/lib/admin/provider-actions";
+import { getRealPatientPortalData, type RealPatientPortalData } from "@/lib/patient/real-patient";
+import { listRealPatients, type RealPatientSummary } from "@/lib/provider/real-provider";
 
 export const dynamic = "force-dynamic";
 
@@ -40,21 +44,43 @@ export default async function WorkspaceRoute({ params }: { params: Promise<{ wor
 
   let adminUsers: AdminDirectoryUser[] | undefined;
   let adminProviders: AdminApprovedProvider[] | undefined;
+  let allAdminProviders: ProviderRecord[] | undefined;
   if (hasPlatformAdmin && workspace === "admin") {
-    const { data: summary, error: summaryError } = await supabase.rpc("admin_platform_summary");
-    if (summaryError) return unavailable("Administrator aggregate metrics could not be loaded securely.");
-    access = { ...access, summary: (summary ?? {}) as WorkspacePayload["summary"] };
-
-    if (section.join("/") === "users") {
-      const [{ data: users, error: usersError }, { data: providers, error: providersError }] = await Promise.all([
-        supabase.rpc("admin_list_users", { p_search: null, p_limit: 100, p_offset: 0 }),
-        supabase.rpc("admin_list_providers", { p_limit: 100 }),
-      ]);
-      if (usersError || providersError) return unavailable("The administrator account and approved-provider directory could not be loaded securely.");
-      adminUsers = (users ?? []) as AdminDirectoryUser[];
-      adminProviders = (providers ?? []) as AdminApprovedProvider[];
+    const { data: summary } = await supabase.rpc("admin_platform_summary");
+    if (summary) {
+      access = { ...access, summary: summary as WorkspacePayload["summary"] };
     }
+
+    const [adminData, allProviders] = await Promise.all([
+      getAdminDirectoryData(),
+      listAllAdminProviders(),
+    ]);
+    adminUsers = adminData.users;
+    adminProviders = adminData.providers;
+    allAdminProviders = allProviders;
   }
 
-  return <SecureWorkspace workspace={workspace} sections={section} pageTitle={sectionTitle(workspace, section)} access={access} adminUsers={adminUsers} adminProviders={adminProviders} />;
+  let patientPortalData: RealPatientPortalData | undefined;
+  if (workspace === "patient") {
+    patientPortalData = await getRealPatientPortalData(user.id);
+  }
+
+  let realPatients: RealPatientSummary[] | undefined;
+  if (workspace === "doctor" || workspace === "front-desk" || workspace === "lab") {
+    realPatients = await listRealPatients();
+  }
+
+  return (
+    <SecureWorkspace
+      workspace={workspace}
+      sections={section}
+      pageTitle={sectionTitle(workspace, section)}
+      access={access}
+      adminUsers={adminUsers}
+      adminProviders={adminProviders}
+      allAdminProviders={allAdminProviders}
+      patientPortalData={patientPortalData}
+      realPatients={realPatients}
+    />
+  );
 }
