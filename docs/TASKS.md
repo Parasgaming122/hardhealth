@@ -54,22 +54,28 @@ Full inventory of roles/pages/components/APIs vs `HARD_Developer_Brief_v2.md`, d
   **Phase 2 Part 3 is now fully closed — no blockers remain on the provider manager.**
 
 ### Phase 2 remaining backlog (priority order from Phase 1 audit)
-- [wip→owner-SQL] **P2-4** patients.cnic column + DB unique index — CODE COMPLETE (Session 6):
-  migration part A + register/search/display/validation in the front desk; pre-migration fallbacks.
-  Blocked only on the owner applying `20261119100000_cnic_unique_atomic_status.sql`.
-- [wip→owner-SQL] **P2-11** atomic SECURITY DEFINER status-change RPC — CODE COMPLETE (Session 6):
-  `updateProviderStatusAction` now calls `admin_set_provider_status`; two-call flow + compensating
-  rollback deleted (D15). Same owner SQL as P2-4.
+- [done] **P2-4** patients.cnic column + DB unique index — CLOSED (Session 7): owner applied
+  20261119100000; probe 6/6 + front-desk live flow 14/14 (CNIC happy path, duplicate rejection,
+  formatted directory, search). No pre-migration fallbacks are reachable anymore (they remain as
+  dead-safe code paths).
+- [done] **P2-11** atomic SECURITY DEFINER status-change RPC — CLOSED (Session 7):
+  `verify_admin_ui.mjs` 21/21 with the atomic RPC live (full lifecycle + audit rows + no-reload
+  updates verified against the live DB).
+- [done] **NEW (Session 7, owner request)** WordPress-style **Auto DB Setup**: boot-time automatic
+  migration runner (`instrumentation.ts` + `lib/db/*` + `/setup` page + friendly no-env redirects).
+  Verified with real-Postgres e2e (4/4), real Next boot (applied 5 migrations in 73 ms), manual
+  install flow (6/6), token gate (6/6), no-env + bad-URL boots, and a 21/21 regression run.
+  See CHANGES.md Session 7 + DECISIONS.md D17/D18.
 - [todo] **P2-5** Doctor prescription templates persisted to DB (table + CRUD + picker in
-  real doctor panel; brief 5.4/7.2). Needs DDL — batch into the NEXT migration.
+  real doctor panel; brief 5.4/7.2). Needs DDL — next migration (auto-setup now applies these
+  automatically once DATABASE_URL is configured).
 - [todo] **P2-6** Printable prescription PDF/print view with QR (brief 5.4).
 - [todo] **P2-7** Storage meter 100% upload block (uploads blocked, reads allowed; brief 5.8/11.5).
 - [todo] **P2-8** Platform config table + real config editor persistence (brief 8.7/22, Rule 1).
 - [todo] **P2-9** Provider-admin staff sub-role editing + payout status (brief 8.6).
 - [todo] **P2-10** Soft delete/deactivation UI for staff + patients w/ confirmation (brief 11.3).
-- [todo] **P2-11** (new, from Session 4 findings) Durable fix for the two-REST-call status change:
-  single SECURITY DEFINER RPC doing update+audit atomically. — DONE in Session 6 (see wip entry
-  above); this line kept for history.
+- [todo] **P2-12** Owner action (optional): add `DATABASE_URL` (Supabase Session pooler, port
+  5432) to the environment to switch on auto-setup for future migrations; `/setup` guides it.
 
 ## Phase 3 — Acceptance-criteria validation (after Phase 2 backlog)
 - [todo] Walk brief Section 20 acceptance criteria end-to-end against the running app.

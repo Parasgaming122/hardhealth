@@ -5,7 +5,120 @@ backup zip + tempfile URL produced.
 
 ---
 
-## 2026-11-19 — Session 6 (this session): P2-4 CNIC uniqueness + P2-11 atomic status RPC (code complete, DDL pending)
+## 2026-11-19 — Session 7: S6 migration verified live + WordPress-style Auto DB Setup (NEW FEATURE)
+
+**Context**: Owner applied `20261119100000_cnic_unique_atomic_status.sql` ("ran the sql"), closing
+P2-4 + P2-11. The session then built the owner-requested **auto database setter**: connect a new
+database and the app sets it up by itself, WordPress-style; if the DB is not configured, the app
+must never crash with a cryptic error — it must tell the owner exactly which env values to add.
+
+### Part 1 — verification of the owner-applied migration (all PASS, live DB)
+
+- `scripts/probe_s7_migration.js` 6/6: `patients.cnic` column exists; duplicate CNIC insert rejected
+  by `patients_cnic_unique_idx` (23505); malformed 5-digit CNIC rejected by
+  `patients_cnic_format_check`; two NULL-cnic patients coexist; `admin_set_provider_status` RPC
+  exists + executes (service key reaches `assert_platform_admin()`, which correctly refuses a
+  keyless actor).
+- `scripts/verify_admin_ui.mjs` 21/21 with the ATOMIC RPC now live: full lifecycle
+  create→edit→approve→suspend→reinstate with toasts, no-reload chip updates, DB persistence
+  (suspend→'rejected'), `provider_status_change` audit rows at every step. **P2-11 closed.**
+- `scripts/verify_postmigration_s7.mjs` 14/14 (NEW): front desk registers a patient WITH a 13-digit
+  CNIC (HARD-000105, digits-only in DB, PKR 500 invoice, 150/350 ledger split); duplicate CNIC →
+  friendly "already registered to … (HARD-xxxxxx)" error, zero rows created; directory shows the
+  formatted 5-7-1 CNIC; search by CNIC digits finds the row. **P2-4 closed.**
+- Cleanup script bugs found + fixed while verifying: throwaway org deletion is RESTRICTed by
+  `user_roles` (delete test auth users BEFORE orgs) and every logged-in test user gets an
+  auto-provisioned `patients` row (`ensurePatientRecord` on `/patient/overview`) that must be
+  deleted while `user_id` still points at them. Live DB returned to its 4 orgs / 1 patient
+  (HARD-000102) / 2 auth users baseline.
+
+### Part 2 — Auto DB Setup (the WordPress-style "auto db setter")
+
+**What it does**: point the app at ANY new (empty) Supabase project — set the 4 env values, restart
+— and `instrumentation.ts` applies every pending `supabase/migrations/*.sql` automatically on boot,
+inside transactions, tracked in a new `hard_setup.schema_migrations` bookkeeping table. No env / no
+DATABASE_URL / wrong URL / failed migration never crashes anything: the app runs, the root layout
+shows a quiet banner, and `/setup` explains exactly what is missing and how to fix it.
+
+**New files (8)**:
+
+1. `scripts/generate-migrations-manifest.mjs` — codegen: embeds all migration SQL into
+   `lib/db/migrations-manifest.ts` (Next output tracing does not ship the migrations folder to
+   Vercel, so the SQL must be an imported module). Wired into `pnpm dev`/`pnpm build` +
+   `pnpm migrations:manifest`; generated file is committed.
+2. `lib/db/setup-state.ts` — runtime-agnostic (edge-safe) helpers: env requirement checklist
+   (names + presence only, never values), globalThis run-record cache, pooler/URL validation,
+   pure planning helpers (`computeMigrationStatuses`, `shouldBaseline`).
+3. `lib/db/auto-setup.ts` — the runner + read-only status check (node-only, `pg`): session advisory
+   lock serializes concurrent cold starts; per-migration `BEGIN; <file sql>; INSERT version; COMMIT`;
+   **baseline mode** for schemas migrated manually before auto-setup existed (the live DB's exact
+   situation); friendly error translation (wrong password, unreachable host, non-Supabase DB,
+   transaction pooler 6543, non-postgres URL scheme).
+4. `instrumentation.ts` — Next boot hook; nodejs runtime only; NEVER throws; logs a one-line
+   summary; records every outcome for `/setup` + the banner.
+5. `app/setup/page.tsx` + `app/setup/actions.ts` + `app/setup/setup-runner-form.tsx` — the friendly
+   setup page: env checklist with "where to find it" hints, live connection + per-migration
+   applied/pending table, last-run record, "Run database setup now" button, and the
+   switch-to-a-new-database recipe. `noindex`.
+6. `components/setup-banner.tsx` — root-layout strip rendered ONLY when the public env is missing
+   or the last setup run failed.
+
+**Modified files (6)**:
+
+7. `proxy.ts` + `lib/supabase/proxy.ts` — friendly guard: matcher now covers `/`, `/login`,
+   `/signup` + the protected roots; missing public env redirects to `/setup` (307) instead of the
+   previous `getSupabasePublicConfig()` throw → 500. Defense-in-depth copy inside
+   `updateSupabaseSession`.
+8. `app/layout.tsx` — renders `<SetupBanner />`.
+9. `package.json` — `pg@8.13.1` dependency + `@types/pg`; manifest codegen in dev/build scripts.
+10. `.env.example` — documents DATABASE_URL / AUTO_DB_SETUP / SETUP_TOKEN + the 5432-not-6543 rule.
+11. `README.md` — new "Automatic database setup" section.
+12. `pnpm-lock.yaml`, `lib/db/migrations-manifest.ts` (generated).
+
+**Access rules for the manual /setup action** (verified end-to-end): correct `SETUP_TOKEN` (when
+configured) OR signed-in active platform_admin OR a virgin database (nothing applied, no app
+schema — the WordPress `install.php` rule; the window closes as soon as the schema exists).
+
+**Bugs found & fixed during verification**:
+- `AUTO_DB_SETUP=false` originally killed the manual runner too — the flag now gates only the boot
+  hook (instrumentation), manual /setup runs always work (matches the documented semantics).
+- A non-postgres `DATABASE_URL` (e.g. a sqlite-style `file:…` value) crashed inside `pg` with a
+  cryptic AggregateError that escaped as an uncaughtException → 500 on /setup. Both entry points
+  now validate the `postgres(ql)://` scheme first and return a clean, credential-free error.
+- (test-harness only) React 19 auto-resets form inputs after each server action — verify scripts
+  must wait for the reset before re-filling the token field.
+
+**Verification performed**:
+- Unit: `lib/db/auto-setup.test.ts` 16 new tests (manifest invariants, planning helpers, runner
+  with fake pg pool: apply/baseline/up-to-date/pending-order/rollback+hint/env-missing/disabled/
+  pooler/bad-scheme). Suite: 36 passed + 4 e2e skipped by default.
+- **Real-Postgres e2e** (`lib/db/auto-setup.e2e.test.ts`, runs only with `HARD_E2E_PG` set; uses a
+  locally downloaded embedded Postgres 18 + stub pgcrypto/auth/roles — recipe in the file header):
+  4/4 — non-Supabase DB fails with the Supabase hint; fresh DB builds from scratch (15 tables, RPCs,
+  RLS on patients, 5 versions, idempotent second run); hand-migrated DB is baselined without
+  re-running DDL; partially-migrated DB applies exactly the 2 pending.
+- **Real Next.js boot e2e**: dev server started with `DATABASE_URL` → empty stubbed DB →
+  instrumentation applied all 5 migrations in 73 ms; `/setup` shows 5/5 applied + "Nothing to do".
+- **Manual install flow** (`scripts/verify_setup_manual.mjs`) 6/6: virgin DB shows the open button,
+  click applies all 5, page flips to up-to-date, button hidden.
+- **Token gate** (`scripts/verify_setup_token.mjs`) 6/6: installed DB shows the token field; no
+  token → denied; wrong token → denied; correct token → applies exactly the 2 pending.
+- **No-env boot** (all Supabase vars + DATABASE_URL unset): `/`, `/login`, `/signup`,
+  `/admin/overview` → 307 `/setup`; `/demo` → 200 with the amber "Setup needed" banner; `/setup`
+  200 listing exactly which values to add; boot log = one friendly line.
+- **Bad-URL boot** (`file:…`): server stays up, /setup 200 with the clean scheme error.
+- **Regression**: `verify_admin_ui.mjs` 21/21 again with the new proxy/layout/instrumentation
+  active; test data cleaned; live DB at baseline.
+- Gates: `pnpm typecheck` 0 errors · `pnpm test` 36/36 · `pnpm build` success (`/setup` route
+  registered, Proxy active).
+
+**Note for the owner**: the sandbox/global shell exports a sqlite-style `DATABASE_URL=file:…`
+which the app now rejects cleanly. On your machine/Vercel simply leave DATABASE_URL unset until
+you want auto-setup, then paste the Supabase **Session pooler** string (port 5432).
+
+---
+
+## 2026-11-19 — Session 6: P2-4 CNIC uniqueness + P2-11 atomic status RPC (code complete, DDL pending)
 
 **Context**: Phase 2 Part 3 closed in Session 5, so this session took the next backlog items that need
 DDL — deliberately BATCHED into one migration file so the owner runs a single SQL in the Supabase

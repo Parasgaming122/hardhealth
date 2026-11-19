@@ -11,6 +11,16 @@ export async function updateSupabaseSession(request: NextRequest) {
     return NextResponse.next({ request });
   }
 
+  // Defense in depth for any future matcher expansion: a missing env must never
+  // bubble up as a 500 — the root proxy redirects to /setup, and this fallback
+  // does the same if it is reached with incomplete configuration.
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/setup";
+    url.search = "";
+    return NextResponse.redirect(url, 307);
+  }
+
   const { url, publishableKey } = getSupabasePublicConfig();
   let response = NextResponse.next({ request });
   const supabase = createServerClient(url, publishableKey, {

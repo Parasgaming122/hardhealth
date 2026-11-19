@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { AppProviders } from "@/components/app-providers";
+import { SetupBanner } from "@/components/setup-banner";
 
 export const metadata: Metadata = {
   title: "H.A.R.D — Your care, accounted for",
@@ -13,6 +14,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return (
     <html lang="en">
       <body suppressHydrationWarning>
+        <SetupBanner />
         <AppProviders>{children}</AppProviders>
       </body>
     </html>

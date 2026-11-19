@@ -166,3 +166,69 @@ crashed exactly this way after earlier test-patient cleanups). Both generators n
 `max(health_id)`, parse its numeric suffix, +1, and on a 23505 race retry with the next serial
 (3 attempts). New invariant to maintain: health_id stays zero-padded 6-digit (`HARD-XXXXXX`) so
 lexicographic max equals numeric max.
+
+## D17 — Auto DB Setup design (2026-11-19, Session 7)
+
+WordPress-style schema automation, per the owner's request ("connect a new database and it sets
+itself up; if the DB isn't configured, don't error — tell me what's needed").
+
+**Architecture** (see ARCHITECTURE.md "Automatic database setup" for the diagram):
+- Source of truth stays `supabase/migrations/*.sql`. `scripts/generate-migrations-manifest.mjs`
+  embeds them into `lib/db/migrations-manifest.ts` (committed; regenerated on `pnpm dev`/`build`)
+  because Next output tracing does NOT ship loose .sql files to serverless bundles.
+- `instrumentation.ts` `register()` runs `runAutoSetup()` once per server process (nodejs runtime
+  only). It NEVER throws — every outcome is a structured record on globalThis.
+- Runner (`lib/db/auto-setup.ts`, `pg`): session `pg_advisory_lock(780423901284)` serializes
+  concurrent cold starts; bookkeeping in `hard_setup.schema_migrations` (own schema — never
+  collides with the supabase CLI's `supabase_migrations`); each migration applied as
+  `BEGIN; <whole file as one simple query>; INSERT version; COMMIT` so $$ function bodies with
+  semicolons are safe and a failed file rolls back completely.
+- **Baseline rule**: bookkeeping table empty + `public.patients` exists → the schema was applied
+  manually before auto-setup existed (the live DB's state) → record every manifest version as
+  applied ('baselined') instead of re-running DDL that would fail "already exists". LIMITATION:
+  a PARTIALLY hand-migrated DB is baselined as fully migrated — per-migration status is visible
+  on /setup, so the owner can spot and fix it; new migrations are always incremental.
+- `DATABASE_URL` must be the **Session pooler (5432)** or direct connection: the transaction
+  pooler (6543) cannot carry session advisory locks or multi-statement simple queries — the
+  runner refuses it with a pointed message. Non-`postgres(ql)://` values are refused before `pg`
+  sees them (see D18).
+- `/setup` manual action access: SETUP_TOKEN (timing-safe compare) OR active platform_admin OR
+  virgin DB (0 applied + no `public.patients`). The virgin window is the WordPress install.php
+  rule — anyone can install an uninstalled app; it closes the moment the schema exists.
+- `AUTO_DB_SETUP=false` gates ONLY the boot hook; manual /setup runs always work (semantics
+  documented in .env.example).
+- Missing env is NEVER an error: proxy redirects `/`, `/login`, `/signup` + protected roots to
+  `/setup` (307) when the public env is absent; the root layout banner shows when env is broken
+  or the last run failed; `/demo`, `/verify/*`, `/rx/*` keep working offline.
+
+**Why not run DDL through the Supabase REST API**: it cannot execute arbitrary SQL (by design);
+only the pg protocol can. So auto-setup genuinely needs the database connection string — exactly
+like WordPress needs DB host/user/password in wp-config. `/setup` explains where to find it.
+
+**Test recipe for real-postgres e2e** (no system postgres in the sandbox, no root for apt):
+embedded Postgres 18 from Zonky (maven central, `embedded-postgres-binaries-linux-amd64`),
+`initdb -U postgres --auth=trust`, port 54329, plus stubs that mimic Supabase: roles
+`anon`/`authenticated`/`service_role`, `auth` schema with `auth.users` + `auth.uid()`, and a
+minimal `pgcrypto` extension stub whose `digest(data, 'sha256')` maps to core `sha256()` (zonky
+ships without contrib). Encapsulated in `lib/db/auto-setup.e2e.test.ts` (runs only when
+`HARD_E2E_PG` is set) + `/home/z/my-project/scripts/make_local_supa_db.mjs`.
+
+## D18 — Three traps found while verifying the auto setup (2026-11-19, Session 7)
+
+1. **The sandbox shell exports a global `DATABASE_URL=file:/home/z/my-project/db/custom.db`**
+   (sqlite-style, for sandbox tooling, from `/home/z/my-project/.env`). Any dev server started
+   without overriding it inherits the value. Handing it to `pg` produced a cryptic
+   `AggregateError` that escaped as an **uncaughtException** (process-level, uncatchable by
+   try/catch around await) → 500 on /setup. Fix: `isValidDatabaseUrl()` scheme validation in BOTH
+   `runAutoSetup` and `checkDatabaseStatus`, before any pg object is created; error reports the
+   scheme only, never the path/credentials. Rule for future sessions: start dev servers with
+   `env -u DATABASE_URL` to reproduce the owner's no-DATABASE_URL local state.
+2. **React 19 auto-resets uncontrolled form inputs after every server action** that uses
+   `useActionState` + form actions. Verify scripts that fill a field, submit, and re-fill must
+   wait for the reset (`waitForFunction` on `input.value === ""`) between submissions, or the
+   new value is silently wiped mid-flight (cost one debugging round on the token-gate test).
+3. **Test-data cleanup ordering (live DB)**: `user_roles.provider_id` RESTRICTs
+   `provider_organizations` deletion, so throwaway auth users must be deleted BEFORE their orgs;
+   and every test user that ever hit `/patient/overview` owns an auto-provisioned `patients` row
+   (via `ensurePatientRecord`) whose `user_id` becomes NULL on user delete — delete those rows
+   while the user still exists or they orphan.
