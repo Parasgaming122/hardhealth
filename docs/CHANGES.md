@@ -507,6 +507,8 @@ Dev server confirmed running; tsc 0 errors; vitest 17/17 at that time.
 
 | zip | uploaded at | URL | expires |
 |---|---|---|---|
+| hard_phase2_part9_repeat.zip (incl. .git history, commit 19c0dc5; .env.local EXCLUDED) | 2026-11-20 | https://tempfile.org/hckkZPYQBFM/ | +48h |
+| hard_phase2_part8_templates.zip (incl. .git history, commit 70d14fb; .env.local EXCLUDED) | 2026-11-20 | https://tempfile.org/W6hnqZvKy5J/ | +48h |
 | hard_phase2_part7_autodbsetup.zip (incl. .git history, session 7 commit 7fb7972; .env.local EXCLUDED) | 2026-11-19 | https://tempfile.org/mPaV3rMuU4J/ | +48h |
 | hard_phase2_part6_cnic_atomic.zip (incl. .git history, session 6 commit; .env.local EXCLUDED) | 2026-11-19 | https://tempfile.org/HR4ifvgD5ym/ | +48h |
 | hard_phase2_part5_verified.zip (incl. .git history, commit 197a452; .env.local EXCLUDED) | 2026-11-19 | https://tempfile.org/841DVfgLHLj/ | +48h |
