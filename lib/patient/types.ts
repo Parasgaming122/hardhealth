@@ -86,4 +86,6 @@ export interface RealPatientPortalData {
   invoices: RealInvoice[];
   accessLogs: RealAccessLog[];
   providers: Array<{ id: string; name: string; type: string; location: string; status: string }>;
+  /** P2-7: storage meter percentage, 0-100 (brief 5.8/7.4). */
+  storagePct: number;
 }

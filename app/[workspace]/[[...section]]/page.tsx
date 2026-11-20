@@ -5,8 +5,12 @@ import { SecureWorkspace } from "@/components/secure-workspace";
 import type { AdminApprovedProvider, AdminDirectoryUser } from "@/lib/admin/types";
 import { getAdminDirectoryData } from "@/lib/admin/actions";
 import { listAllAdminProviders, type ProviderRecord } from "@/lib/admin/provider-actions";
+import { getPlatformConfigForAdmin } from "@/lib/admin/config-actions";
+import { readPlatformConfig, type PlatformConfig } from "@/lib/admin/config";
 import { getRealPatientPortalData, type RealPatientPortalData } from "@/lib/patient/real-patient";
 import { listRealPatients, listDoctorTemplates, listDoctorRecentPrescriptions, type RealPatientSummary } from "@/lib/provider/real-provider";
+import { getProviderAdminData } from "@/lib/provider-admin/actions";
+import { type ProviderAdminData } from "@/lib/provider-admin/types";
 import type { DoctorRecentPrescription, DoctorTemplateSummary } from "@/lib/provider/types";
 
 export const dynamic = "force-dynamic";
@@ -46,6 +50,7 @@ export default async function WorkspaceRoute({ params }: { params: Promise<{ wor
   let adminUsers: AdminDirectoryUser[] | undefined;
   let adminProviders: AdminApprovedProvider[] | undefined;
   let allAdminProviders: ProviderRecord[] | undefined;
+  let platformConfig: PlatformConfig | undefined;
   if (hasPlatformAdmin && workspace === "admin") {
     const { data: summary } = await supabase.rpc("admin_platform_summary");
     if (summary) {
@@ -72,6 +77,17 @@ export default async function WorkspaceRoute({ params }: { params: Promise<{ wor
       );
       allAdminProviders = [];
     }
+
+    // P2-8 (brief 8.7/Rule 1): live platform configuration for the real config
+    // editor. Degrades to brief-22 defaults when the RPC/table is unavailable.
+    platformConfig = await getPlatformConfigForAdmin();
+  }
+
+  // P2-8 (brief Rule 1): the front desk shows the live registration fee and
+  // revenue split from the config table — never hard-coded.
+  let frontDeskConfig: PlatformConfig | undefined;
+  if (workspace === "front-desk") {
+    frontDeskConfig = await readPlatformConfig();
   }
 
   let patientPortalData: RealPatientPortalData | undefined;
@@ -95,6 +111,13 @@ export default async function WorkspaceRoute({ params }: { params: Promise<{ wor
     doctorRecentPrescriptions = await listDoctorRecentPrescriptions(user.id);
   }
 
+  // P2-9/P2-10 (brief 8.6): the provider admin's real staff + ledger data,
+  // strictly self-scoped to their own organization inside the action.
+  let providerAdminData: ProviderAdminData | undefined;
+  if (workspace === "provider-admin") {
+    providerAdminData = await getProviderAdminData();
+  }
+
   return (
     <SecureWorkspace
       workspace={workspace}
@@ -104,6 +127,9 @@ export default async function WorkspaceRoute({ params }: { params: Promise<{ wor
       adminUsers={adminUsers}
       adminProviders={adminProviders}
       allAdminProviders={allAdminProviders}
+      platformConfig={platformConfig}
+      frontDeskConfig={frontDeskConfig}
+      providerAdminData={providerAdminData}
       patientPortalData={patientPortalData}
       realPatients={realPatients}
       doctorTemplates={doctorTemplates}

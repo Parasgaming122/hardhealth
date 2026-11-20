@@ -5,6 +5,94 @@ backup zip + tempfile URL produced.
 
 ---
 
+## 2026-11-20 — Session 10: Phase 2 backlog completed (P2-6..P2-10) + Phase 3 acceptance + Phase 4 polish
+
+**Context**: The owner asked to complete the entire remaining TASKS.md backlog at once, then run
+all tests; also to verify `task.md` is completed faithfully against the brief. All five remaining
+P2 items were implemented in one session, verified live end-to-end (34/34 acceptance checks),
+and Phases 3 + 4 were closed.
+
+### New migration `20261121000000_platform_config.sql` (P2-8; owner applies this one file)
+
+- `public.config` (key/value/updated_at/updated_by), RLS enabled, no policies, grants revoked.
+- Brief-22 seed defaults: registration_fee 500, renewal_fee 400, base/plus/pro plan quotas +
+  prices, provider_share_percent 30, storage_alert_percent 80, prescription_valid_days 30,
+  prescription_max_fills 1, court_access_days 30, emergency_access_hours 24.
+- `hard_private.config_key_allowed` allowlist; `platform_get/set_config` SECURITY DEFINER RPCs
+  behind the existing `assert_platform_admin()`; every write audited (`config_update` with old +
+  new value). Audit CHECK extended with `config_update` + `payout_update` (preserving every
+  earlier value). Public wrappers granted to `authenticated` only (D15 pattern).
+
+### App changes (16 files)
+
+1. `lib/admin/config-defaults.ts` (NEW) — UI-safe constants (defaults + labels); `lib/admin/config.ts`
+   (NEW, server-only) — `readPlatformConfig()` with brief-22 fallbacks (D10); `lib/admin/config-actions.ts`
+   (REWRITE, "use server") — `getPlatformConfigForAdmin` + `updatePlatformConfigAction` (audited RPC
+   writes). Splitting constants out of the "use server" file was mandatory (Next.js only allows
+   async-function exports there) and keeps client components off the next/headers graph.
+2. `components/admin-config-editor.tsx` (NEW) — the real /admin/config editor: 13 keys, unsaved-
+   changes badge, per-change audit trail notice; replaces the demo config form on the admin
+   workspace (demo panel keeps Finance & ledgers there).
+3. `lib/provider/actions.ts` — `registerRealPatient` now reads `registration_fee` +
+   `provider_share_percent` from config AND stamps the desk's ACTIVE front_desk org onto the
+   invoice + provider ledger entry (Phase 3 caught the omission: the provider ledger could never
+   find its rows). `issueRealPrescription` reads `prescription_valid_days` +
+   `prescription_max_fills` from config.
+4. `components/real-front-desk-panel.tsx` — KPI cards + collections math now config-driven
+   (fee/share percentages rendered from live values, no hard-coded PKR 500/150/350).
+5. `lib/patient/real-patient.ts` (P2-7) — `SIMULATED_DOCUMENT_MB` (340/doc) +
+   `getPatientStorage()` (used = sum of ingestion audit metadata sizes; quota = config
+   `base_plan_quota_mb`); `getRealPatientPortalData` fills real numbers + `storagePct`.
+6. `lib/patient/actions.ts` (P2-7) — `savePatientIngestion` blocks at 100% BEFORE any write with
+   a friendly "reading stays available — upgrade at the desk" message; returns the 80%+ warning;
+   audit metadata now carries `size_mb`.
+7. `components/real-patient-portal.tsx` (P2-7) — real meter (used/quota/pct, amber ≥80%, red +
+   coral "uploads blocked" banner at 100%); the upload modal surfaces the block + warning.
+8. `lib/provider-admin/types.ts` (NEW) + `lib/provider-admin/actions.ts` (NEW) (P2-9/P2-10) —
+   `getProviderAdminData` (org KPIs, staff, provider-side ledger — all scoped to the caller's own
+   ACTIVE provider_admin org), `addProviderStaffAction` (grant sub-role in own org only),
+   `setStaffActiveAction` (soft delete/reactivate with self + last-admin guards),
+   `setPayoutStatusAction` (own-org provider rows only; audit write failure now ROLLS BACK the
+   status change so ledger and audit never diverge pre-migration).
+9. `components/real-provider-admin-panel.tsx` (NEW) — the real provider-admin workspace: live
+   KPIs, staff table with status badges, add-staff dialog, deactivate/reactivate confirmation
+   modal, earnings ledger with payout toggle. Wired into the workspace (demo panel stays on /demo).
+10. `components/real-doctor-panel.tsx` (P2-6) — print-only prescription sheet + "Print
+    prescription (PDF)" button on the issued screen; `app/globals.css` print rules make ONLY the
+    sheet visible in print media (visibility technique + page-break guard).
+11. `components/secure-workspace.tsx` + `app/[workspace]/[[...section]]/page.tsx` — new props
+    (`platformConfig`, `frontDeskConfig`, `providerAdminData`), provider-admin swap, doctor
+    identity (name + provider name from `get_my_workspace`) for the print sheet.
+12. `lib/db/migrations-manifest.ts` regenerated (7 migrations); `lib/db/auto-setup.test.ts` list
+    updated; `lib/db/auto-setup.e2e.test.ts` fresh-DB probes extended with the config table + RPC;
+    `lib/supabase/security.test.ts` gained the P2-8 guardrail test (RLS/revokes/assert/allowlist/
+    audit/seed defaults/no over-grant); `public/manus-routes.json` synced (/setup).
+
+### Verification performed
+
+- `pnpm typecheck` 0 errors · `pnpm test` 38/38 · `pnpm build` success.
+- **Real-Postgres e2e** (embedded PG 18 cluster + pgcrypto stub recipe, D17): 4/4 with the 7th
+  migration — a fresh DB builds all 7 including the config table + RPCs.
+- **Live acceptance run** (`scripts/verify_s10_acceptance.mjs`, 5 temporary role users on Cedar):
+  **34/34** — A: config editor renders + pre-migration degrade (friendly hint, no crash);
+  B: front-desk registration with config fee + LEDGER RECONCILIATION (350+150=500);
+  C: provider admin workspace, add staff → grant → deactivate (confirmation) → reactivate →
+  self-deactivation blocked, payout toggle shows the ROLLBACK + migration hint pre-migration and
+  persists once applied; D: storage meter 0→30%→66%→99% (amber alert)→4th upload BLOCKED, only 3
+  cost items written, reading still allowed at 100%; E: print button + print-only sheet (verified
+  via print-media screenshot); F: zero uncaught client errors across every role login.
+- **Cleanup** (`scripts/cleanup_s10.js` incl. the D18/created_by orphan sweep): live DB restored
+  to its exact baseline (4 orgs / 1 patient / 2 users / 0 everything / 504 audit events).
+
+### Handed to owner (the only remaining manual step)
+
+Apply `supabase/migrations/20261121000000_platform_config.sql` in the Supabase SQL editor — OR
+set `DATABASE_URL` (Session pooler, port 5432) and restart: the auto DB setup applies it and
+`/setup` shows it flipping to applied. Until then every config consumer runs on the brief-22
+defaults and the editor shows the friendly hint.
+
+---
+
 ## 2026-11-20 — Session 9: P2-5 closed live (templates DDL applied by owner) + P2-5b repeat-last-prescription
 
 **Context**: Sandbox was recycled — the working tree was restored from

@@ -6,6 +6,7 @@ const migration = readFileSync(new URL("../../supabase/migrations/20261110130000
 const rateLimitMigration = readFileSync(new URL("../../supabase/migrations/20261110140000_pharmacy_resolve_rate_limit.sql", import.meta.url), "utf8");
 const cnicAtomicMigration = readFileSync(new URL("../../supabase/migrations/20261119100000_cnic_unique_atomic_status.sql", import.meta.url), "utf8");
 const templatesMigration = readFileSync(new URL("../../supabase/migrations/20261119200000_doctor_prescription_templates.sql", import.meta.url), "utf8");
+const configMigration = readFileSync(new URL("../../supabase/migrations/20261121000000_platform_config.sql", import.meta.url), "utf8");
 const nextConfig = readFileSync(new URL("../../next.config.ts", import.meta.url), "utf8");
 
 describe("security guardrails", () => {
@@ -80,6 +81,32 @@ describe("security guardrails", () => {
     // Templates are doctor-unique by name and saving the same name overwrites (the <30s repeat flow).
     expect(templatesMigration).toContain("unique (doctor_user_id, name)");
     expect(templatesMigration).toContain("on conflict (doctor_user_id, name) do update");
+  });
+
+  it("keeps the platform config table admin-only, audited, and key-allowlisted (P2-8)", () => {
+    expect(configMigration).toContain("create table if not exists public.config");
+    expect(configMigration).toContain("alter table public.config enable row level security");
+    // No direct API access — RLS has no policies AND table grants are revoked.
+    expect(configMigration).toContain("revoke all on public.config from anon, authenticated");
+    expect(configMigration).not.toMatch(/create policy[^;]*on public\.config/i);
+    // Writes assert an active platform admin, allowlist keys, validate numeric values, and audit.
+    expect(configMigration).toContain("hard_private.assert_platform_admin()");
+    expect(configMigration).toContain("hard_private.config_key_allowed(p_key)");
+    expect(configMigration).toContain("'Configuration values must be non-negative whole numbers'");
+    expect(configMigration).toContain("'config_update'");
+    // Hard-private implementation revoked from everyone; public wrapper granted to authenticated only.
+    expect(configMigration).toContain(
+      "revoke all on function hard_private.platform_set_config(text, text) from public, anon, authenticated, service_role"
+    );
+    expect(configMigration).toContain("grant execute on function public.platform_get_config() to authenticated");
+    expect(configMigration).not.toMatch(/grant execute on function public\.platform_[a-z_]+\([^)]*\) to (public|anon)/i);
+    // Brief 22 defaults are seeded (Rule 1: config lives in the table, never hard-coded).
+    expect(configMigration).toContain("('registration_fee', '500')");
+    expect(configMigration).toContain("('provider_share_percent', '30')");
+    expect(configMigration).toContain("('prescription_valid_days', '30')");
+    // The new audit event types ride along without dropping any existing ones.
+    expect(configMigration).toContain("'payout_update'");
+    expect(configMigration).toContain("'provider_status_change'");
   });
 
   it("defaults auth cookies to secure cross-site HTTPS and isolates localhost opt-out", () => {

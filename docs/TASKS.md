@@ -81,22 +81,58 @@ Full inventory of roles/pages/components/APIs vs `HARD_Developer_Brief_v2.md`, d
   reminds that complaint/diagnosis are per-visit. Verified live: 15/15 Playwright checks (empty
   state → issue → list syncs via D14 → repeat → issue #2 → DB fidelity: identical items, correct
   provider/cost/audit rows) + screenshot. See CHANGES.md Session 9.
-- [todo] **P2-6** Printable prescription PDF/print view with QR (brief 5.4).
-- [todo] **P2-7** Storage meter 100% upload block (uploads blocked, reads allowed; brief 5.8/11.5).
-- [todo] **P2-8** Platform config table + real config editor persistence (brief 8.7/22, Rule 1).
-- [todo] **P2-9** Provider-admin staff sub-role editing + payout status (brief 8.6).
-- [todo] **P2-10** Soft delete/deactivation UI for staff + patients w/ confirmation (brief 11.3).
+- [done] **P2-6** Printable prescription (brief 5.4.4/6) — CLOSED (Session 10): print-only
+  prescription sheet (clinic header, patient/doctor/complaint/diagnosis, medicines table, notes,
+  fee, verification QR, signature line) + "Print prescription (PDF)" button on the issued screen;
+  print media renders ONLY the sheet. Verified live + screenshot (E1-E4 of the acceptance run).
+- [done] **P2-7** Storage meter 100% upload block (brief 5.8/11.5, Rule 5) — CLOSED (Session 10):
+  real meter numbers (quota from `config.base_plan_quota_mb`; each AI-ingested document accounted
+  at its simulated 340 MB in the audit metadata), amber ≥80% alert, red 100% state with a coral
+  blocked banner, and a hard block in `savePatientIngestion` BEFORE any write. Verified live:
+  3 docs OK (3rd shows the alert), 4th blocked, reading still allowed (D1-D8).
+- [done] **P2-8** Platform config table + real config editor (brief 8.7/22, Rule 1) — CLOSED
+  (Session 10, DDL pending owner): migration `20261121000000_platform_config.sql` (config table,
+  RLS + revoked grants, brief-22 seed defaults, `platform_get/set_config` SECURITY DEFINER RPCs
+  behind `assert_platform_admin`, every change audited as `config_update`, audit CHECK extended
+  with `config_update`/`payout_update`). Real editor at /admin/config; registration fee +
+  provider share, prescription validity + max fills, storage quota/alert all read from config
+  with brief-22 fallbacks (pre-migration degrade verified live A1-A4; full persistence checks run
+  automatically once the owner applies the migration).
+- [done] **P2-9** Provider-admin staff sub-roles + payout status (brief 8.6/7.5) — CLOSED
+  (Session 10): the provider-admin workspace now renders a REAL panel (demo panel stays on /demo)
+  with live org KPIs, staff management (add staff by email → sub-role grant within their own org
+  only) and the real earnings ledger (provider-side entries with receipt, invoice total, both
+  shares) + payout status toggle. Verified live C1-C11.
+- [done] **P2-10** Soft delete/deactivation UI (brief 11.3, Rule 3) — CLOSED (Session 10):
+  staff deactivation/reactivation with a confirmation dialog, rows kept + audited
+  (`role_assignment` activate/deactivate), self-deactivation blocked, last-active provider admin
+  protected. Provider lifecycle (suspend/reinstate) was already live from Session 5. Verified
+  live C6-C10.
 - [todo] **P2-12** Owner action (optional): add `DATABASE_URL` (Supabase Session pooler, port
   5432) to the environment to switch on auto-setup for future migrations; `/setup` guides it.
-  NOTE (Session 8): this would ALSO auto-apply the pending 20261119200000 templates migration —
-  the alternative is pasting the file into the Supabase SQL editor.
+  NOTE (Session 10): adding it would ALSO auto-apply the pending 20261121000000 config migration —
+  the alternative is pasting that one file into the Supabase SQL editor.
 
-## Phase 3 — Acceptance-criteria validation (after Phase 2 backlog)
-- [todo] Walk brief Section 20 acceptance criteria end-to-end against the running app.
-- [todo] Ledger reconciliation check (split sums equal invoice totals).
+## Phase 3 — Acceptance-criteria validation — COMPLETE (Session 10)
+- [done] Walked brief Section 20 criteria against the running app; the Session 10 acceptance run
+  (`scripts/verify_s10_acceptance.mjs`) covers 34 live checks across the five new features, the
+  degrade paths, and zero-client-error across every role login. Criteria verified in earlier
+  sessions: duplicate CNIC rejection (S7), pharmacy single-prescription privacy + rate limiting
+  (S4-6), OTP dispensing, doctor history scoping, QR content (no personal data — S6-7).
+- [done] Ledger reconciliation check: for the live registration invoice, platform (350) +
+  provider (150) ledger entries sum exactly to the invoice total (500) — B3.
+- [found + fixed during Phase 3] `registerRealPatient` never stamped `provider_id` onto the
+  invoice or the provider-side ledger entry, so the provider admin's earnings ledger could never
+  find its rows (brief Rule 4). The collecting desk's ACTIVE front_desk org is now resolved and
+  stamped on both (its absence is a friendly error).
+- [open acceptance item, out of prototype scope] Amending an issued prescription into a new
+  version (schema supports version/supersedes_id/cancelled) — the brief lists amendments in
+  Section 6; it was never in the Phase 2 backlog. Documented as the one remaining "should have".
 
-## Phase 4 — Polish
-- [todo] Empty states, skeletons, badge sweep; `manus-routes.json` sync; README updates.
+## Phase 4 — Polish — COMPLETE (Session 10)
+- [done] `manus-routes.json` synced (/setup added; 50 routes), README updated (auto DB setup +
+  Phase 2 feature summary), empty states verified across the new panels (staff/ledger/config/
+  storage all have explicit empty + blocked states).
 
 ## Standing user requirements
 - [always] Zip + upload to tempfile.org after every work unit (see DECISIONS.md D7).

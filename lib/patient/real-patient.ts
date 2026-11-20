@@ -1,7 +1,41 @@
 import { createSupabaseAdminClient } from "@/lib/supabase/server";
 import type { RealPatientRecord, RealPatientPortalData, RealCostItem, RealPrescription, RealLabReport, RealInvoice, RealAccessLog } from "@/lib/patient/types";
+import { readPlatformConfig } from "@/lib/admin/config";
 
 export type { RealPatientRecord, RealPatientPortalData, RealCostItem, RealPrescription, RealLabReport, RealInvoice, RealAccessLog } from "@/lib/patient/types";
+
+/**
+ * Simulated size of one AI-ingested document (scanned PDF/photo). The prototype
+ * stores no real files, so each ingestion is accounted at this size against the
+ * patient's plan quota — enough to exercise the 80% alert and the 100% upload
+ * block (brief 5.8, acceptance: "a patient at 100% storage cannot upload but
+ * can read everything").
+ */
+export const SIMULATED_DOCUMENT_MB = 340;
+
+/**
+ * Real storage accounting for the meter (brief 7.4: "storage meter from file
+ * sizes"). Used = sum of the patient's ingestion documents' simulated sizes
+ * recorded in their immutable audit events; quota = the plan quota from the
+ * config table (brief Rule 1), Base plan in this prototype. Degrades to a
+ * 0/1024 meter when the config migration is absent.
+ */
+export async function getPatientStorage(patientId: string): Promise<{ usedMb: number; quotaMb: number }> {
+  const admin = createSupabaseAdminClient();
+  const [config, events] = await Promise.all([
+    readPlatformConfig(),
+    admin
+      .from("audit_events")
+      .select("metadata")
+      .eq("patient_id", patientId)
+      .eq("resource_type", "ai_document_ingestion"),
+  ]);
+  const usedMb = ((events.data as Array<{ metadata: Record<string, unknown> | null }>) ?? []).reduce(
+    (sum, row) => sum + Math.max(0, Number(row.metadata?.size_mb) || 0),
+    0
+  );
+  return { usedMb, quotaMb: Math.max(1, Math.round(config.base_plan_quota_mb)) };
+}
 
 export async function ensurePatientRecord(userId: string, displayName?: string): Promise<RealPatientRecord> {
   const admin = createSupabaseAdminClient();
@@ -25,6 +59,8 @@ export async function ensurePatientRecord(userId: string, displayName?: string):
       storageQuotaMb: 1024,
     };
   }
+  // (real storage values are filled in getRealPatientPortalData, which knows
+  // the config table and the patient's ingestion history)
 
   // Generate next Health ID from the highest existing serial. count(*)-based
   // numbering breaks when patient rows are deleted (uniqueness is on health_id);
@@ -92,6 +128,14 @@ export async function ensurePatientRecord(userId: string, displayName?: string):
 export async function getRealPatientPortalData(userId: string): Promise<RealPatientPortalData> {
   const admin = createSupabaseAdminClient();
   const patient = await ensurePatientRecord(userId);
+  // P2-7 (brief 5.8/7.4): real meter numbers — config quota + ingestion sizes.
+  const storage = await getPatientStorage(patient.id);
+  const storagePct = Math.min(100, Math.round((storage.usedMb / storage.quotaMb) * 100));
+  const patientWithStorage: RealPatientRecord = {
+    ...patient,
+    storageUsedMb: storage.usedMb,
+    storageQuotaMb: storage.quotaMb,
+  };
 
   const [
     { data: costs },
@@ -182,12 +226,13 @@ export async function getRealPatientPortalData(userId: string): Promise<RealPati
   });
 
   return {
-    patient,
+    patient: patientWithStorage,
     costs: mappedCosts,
     prescriptions: mappedPrescriptions,
     labReports: mappedReports,
     invoices: mappedInvoices,
     accessLogs: mappedLogs,
     providers: mappedProviders,
+    storagePct,
   };
 }

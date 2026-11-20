@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { BadgeCheck, BookmarkPlus, Check, FilePlus2, History, LayoutTemplate, Pill, Plus, QrCode, Repeat, Search, Stethoscope, Trash2, UsersRound, X } from "lucide-react";
+import { Printer, BadgeCheck, BookmarkPlus, Check, FilePlus2, History, LayoutTemplate, Pill, Plus, QrCode, Repeat, Search, Stethoscope, Trash2, UsersRound, X } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { Badge, Button } from "@/components/ui";
 import { dateLabel, pkr } from "@/lib/domain";
@@ -14,11 +14,15 @@ export function RealDoctorPanel({
   patients,
   templates: initialTemplates = [],
   recentPrescriptions: initialRecentPrescriptions = [],
+  doctorName = "Treating physician",
+  providerName = "H.A.R.D Clinic",
   section = "Today",
 }: {
   patients: RealPatientSummary[];
   templates?: DoctorTemplateSummary[];
   recentPrescriptions?: DoctorRecentPrescription[];
+  doctorName?: string;
+  providerName?: string;
   section?: string;
 }) {
   const [selectedPatientId, setSelectedPatientId] = useState(patients[0]?.id || "");
@@ -273,25 +277,89 @@ export function RealDoctorPanel({
           </div>
           <div className="card-body">
             {issuedRx ? (
-              <div className="rounded-2xl border border-emerald-100 bg-emerald-50/50 p-6 text-center">
-                <div className="mx-auto grid h-12 w-12 place-items-center rounded-full bg-emerald-100 text-emerald-800">
-                  <Check size={24} />
+              <div>
+                {/* P2-6 (brief 5.4.4 / 6): printable prescription with QR — rendered
+                    only when printing; the on-screen success card stays interactive. */}
+                <div className="print-sheet" aria-hidden="true">
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", borderBottom: "2px solid #0f766e", paddingBottom: 12 }}>
+                    <div>
+                      <div style={{ fontSize: 20, fontWeight: 800, color: "#0f172a" }}>{providerName}</div>
+                      <div style={{ fontSize: 11, color: "#475569" }}>Verified digital prescription · H.A.R.D (Healthcare Accounting &amp; Record Keeping)</div>
+                    </div>
+                    <div style={{ textAlign: "right" }}>
+                      <div style={{ fontFamily: "monospace", fontSize: 16, fontWeight: 800, color: "#0f766e" }}>{issuedRx.code}</div>
+                      <div style={{ fontSize: 10, color: "#64748b" }}>Issued {dateLabel(new Date().toISOString())}</div>
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: 24, marginTop: 14, fontSize: 11, color: "#0f172a" }}>
+                    <div><strong>Patient:</strong> {selectedPatient?.fullName} ({selectedPatient?.healthId})</div>
+                    <div><strong>Doctor:</strong> {doctorName}</div>
+                    <div><strong>Complaint:</strong> {complaint}</div>
+                    <div><strong>Diagnosis:</strong> {diagnosis}</div>
+                  </div>
+                  <table style={{ width: "100%", borderCollapse: "collapse", marginTop: 14, fontSize: 11 }}>
+                    <thead>
+                      <tr>
+                        {["Medicine", "Strength", "Dose", "Frequency", "Duration", "Qty"].map((h) => (
+                          <th key={h} style={{ textAlign: "left", borderBottom: "1px solid #cbd5e1", padding: "6px 8px", background: "#f8fafc", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.04em", color: "#475569" }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {items.map((it, idx) => (
+                        <tr key={idx}>
+                          <td style={{ borderBottom: "1px solid #e2e8f0", padding: "6px 8px", fontWeight: 700 }}>{it.medicine}</td>
+                          <td style={{ borderBottom: "1px solid #e2e8f0", padding: "6px 8px" }}>{it.strength}</td>
+                          <td style={{ borderBottom: "1px solid #e2e8f0", padding: "6px 8px" }}>{it.dose}</td>
+                          <td style={{ borderBottom: "1px solid #e2e8f0", padding: "6px 8px" }}>{it.frequency}</td>
+                          <td style={{ borderBottom: "1px solid #e2e8f0", padding: "6px 8px" }}>{it.duration}</td>
+                          <td style={{ borderBottom: "1px solid #e2e8f0", padding: "6px 8px" }}>{it.quantity}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 18 }}>
+                    <div style={{ fontSize: 11, color: "#334155", maxWidth: 420 }}>
+                      {note && <div><strong>Notes:</strong> {note}</div>}
+                      {Number(consultationCost) > 0 && <div style={{ marginTop: 4 }}><strong>Consultation fee:</strong> {pkr(Number(consultationCost))} (posted to the patient's cost record)</div>}
+                      <div style={{ marginTop: 6, fontSize: 9, color: "#64748b" }}>
+                        Verify this prescription by scanning the QR or entering the code at any H.A.R.D pharmacy.
+                        The QR carries no personal or medical data — it resolves only to this prescription.
+                      </div>
+                    </div>
+                    <div style={{ textAlign: "center" }}>
+                      <QRCodeSVG value={`/rx/resolve?token=${encodeURIComponent(issuedRx.id)}`} size={110} level="M" />
+                      <div style={{ fontSize: 9, color: "#64748b", marginTop: 4 }}>Scan to verify</div>
+                    </div>
+                    <div style={{ textAlign: "center", marginTop: 56 }}>
+                      <div style={{ width: 180, borderTop: "1px solid #94a3b8", paddingTop: 4, fontSize: 10, color: "#475569" }}>{doctorName}</div>
+                    </div>
+                  </div>
                 </div>
-                <h3 className="mt-3 text-sm font-bold text-slate-800">Prescription Issued Successfully</h3>
-                <div className="mt-2 font-mono text-xl font-extrabold text-emerald-800">{issuedRx.code}</div>
-                <p className="mt-1 text-xs text-slate-600">Issued to {selectedPatient?.fullName} ({selectedPatient?.healthId})</p>
 
-                <div className="qr-frame mx-auto my-4 w-fit">
-                  <QRCodeSVG value={`/rx/resolve?token=${encodeURIComponent(issuedRx.id)}`} size={160} level="M" includeMargin />
-                </div>
-                <p className="text-[9px] text-slate-400">
-                  This QR code resolves only to this prescription. It contains no clinical history or identity leak.
-                </p>
+                <div className="rounded-2xl border border-emerald-100 bg-emerald-50/50 p-6 text-center">
+                  <div className="mx-auto grid h-12 w-12 place-items-center rounded-full bg-emerald-100 text-emerald-800">
+                    <Check size={24} />
+                  </div>
+                  <h3 className="mt-3 text-sm font-bold text-slate-800">Prescription Issued Successfully</h3>
+                  <div className="mt-2 font-mono text-xl font-extrabold text-emerald-800">{issuedRx.code}</div>
+                  <p className="mt-1 text-xs text-slate-600">Issued to {selectedPatient?.fullName} ({selectedPatient?.healthId})</p>
 
-                <div className="mt-5 flex justify-center gap-2">
-                  <Button size="small" onClick={() => setIssuedRx(null)}>
-                    <FilePlus2 size={12} /> Issue another prescription
-                  </Button>
+                  <div className="qr-frame mx-auto my-4 w-fit">
+                    <QRCodeSVG value={`/rx/resolve?token=${encodeURIComponent(issuedRx.id)}`} size={160} level="M" includeMargin />
+                  </div>
+                  <p className="text-[9px] text-slate-400">
+                    This QR code resolves only to this prescription. It contains no clinical history or identity leak.
+                  </p>
+
+                  <div className="mt-5 flex flex-wrap justify-center gap-2">
+                    <Button size="small" onClick={() => setIssuedRx(null)}>
+                      <FilePlus2 size={12} /> Issue another prescription
+                    </Button>
+                    <Button size="small" variant="secondary" onClick={() => window.print()}>
+                      <Printer size={12} /> Print prescription (PDF)
+                    </Button>
+                  </div>
                 </div>
               </div>
             ) : (

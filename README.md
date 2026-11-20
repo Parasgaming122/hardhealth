@@ -50,6 +50,19 @@ $$;
 
 This grants only the H.A.R.D app role; it does not change Supabase Dashboard/organization permissions. Supabase distinguishes app RBAC from PostgreSQL system roles ([RBAC guide](https://supabase.com/docs/guides/api/custom-claims-and-role-based-access-control-rbac), [Postgres roles](https://supabase.com/docs/guides/database/postgres/roles)). Do not put the role in editable Auth user metadata or expose a service-role key in the browser.
 
+## Automatic database setup and platform configuration
+
+H.A.R.D includes a WordPress-style auto DB setup: point the app at any (empty) Supabase project by
+setting the four public/private env values plus `DATABASE_URL` (Session pooler, port 5432) and
+restart — `instrumentation.ts` applies every pending migration in `supabase/migrations/` on boot,
+tracked in `hard_setup.schema_migrations`. Without `DATABASE_URL` nothing crashes: the app runs,
+a quiet banner appears, and `/setup` lists exactly which env values are missing and which
+migrations are pending. Platform business parameters (registration fee, plan quotas, provider
+share percent, prescription validity/fills, storage alert) live in the `config` table (brief
+Rule 1) edited at `/admin/config` by a platform admin; every change is audited. Until migration
+`20261121000000_platform_config.sql` is applied (SQL editor or auto-setup), all consumers fall
+back to the brief-22 defaults.
+
 ## Tests and build
 
 - `pnpm typecheck` — TypeScript static check.

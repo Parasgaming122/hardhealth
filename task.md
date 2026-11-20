@@ -163,3 +163,35 @@ Edited page.tsx
 
 Error: Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 167h22m15s. (Error ID: fd60b68b-fd8d-4cfb-937d-34a430db82d0-811)
 You need to continue 
+
+---
+
+## Session 10 (2026-11-20) — Faithful-completion review of this task file
+
+Every gap identified in the Phase 1 audit above was re-checked against the running app. Verdict:
+**all 13 rows of the gap analysis are closed in the real app**, with two explicitly documented
+scope exceptions (later-phase items that the brief itself defers).
+
+| Gap (Phase 1 audit row) | Status | Where it was closed |
+|---|---|---|
+| 5.1 Provider lifecycle (Critical) | **CLOSED** | Sessions 3-5: admin-providers-manager (create/edit/approve/suspend/reinstate + notes), atomic DB RPC (S7), audited live 21/21 |
+| 5.2 Duplicate CNIC (High) | **CLOSED** | Session 7: DB unique index + format CHECK migration applied by owner; live 14/14 |
+| 5.4 Prescription templates (High) | **CLOSED** | Sessions 8-9: templates table + doctor-only RPCs + chips UI; DDL applied + probed live |
+| 5.4 Printable prescription PDF (Medium) | **CLOSED** | Session 10 (P2-6): print-only prescription sheet with QR; print media shows only the sheet |
+| 5.5 Pharmacy rate limiting + privacy matrix | **PASS (was already green)** | Re-verified in Sessions 4-7 |
+| 5.8 Storage meter 100% block (High) | **CLOSED** | Session 10 (P2-7): config quota + simulated per-document sizes; 80% alert, 100% block before any write, reads stay open — verified live |
+| 7.3 Cost tracking & badges | **PASS (was already green)** | Re-verified in Sessions 7-10 |
+| 7.5/8.6 Provider-admin staff & ledger (High) | **CLOSED** | Session 10 (P2-9): real provider-admin workspace — staff sub-roles within own org, real earnings ledger, payout status with audit |
+| 8.7 Platform config editor (High) | **CLOSED** | Session 10 (P2-8): config table + audited RPCs + real editor; fee/share/validity/fills/quota all config-driven (Rule 1) |
+| 11.3 Soft delete/deactivation (High) | **CLOSED** | Sessions 5 (provider suspend/reinstate) + 10 (staff deactivate/reactivate with confirmation, rows kept, audited) |
+| 14. API completeness | **PASS (was already green)** | Server Actions + /api/rx/resolve + /verify/lab/[token] remain the API surface |
+
+Scope exceptions (documented, not gaps in execution):
+1. **Prescription amendments** (brief Sec 6: new version + cancel old QR) — the schema supports it
+   (version / supersedes_id / cancelled status) but no UI exists; this was never in the Phase 2
+   backlog and remains the one open "should have" from the acceptance criteria.
+2. **Court + Sponsor roles** — the brief marks them "later phase / stretch"; intentionally not built.
+
+Final gate at the end of Session 10: `tsc --noEmit` 0 errors, vitest 38/38, production build OK,
+real-Postgres e2e 4/4 (fresh DB builds all 7 migrations), live acceptance run 34/34,
+live DB restored to its exact baseline afterwards.

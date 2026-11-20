@@ -9,11 +9,19 @@ import { registerRealPatient } from "@/lib/provider/actions";
 
 export function RealFrontDeskPanel({
   patients: initialPatients,
+  config,
   section = "Overview",
 }: {
   patients: RealPatientSummary[];
+  /** P2-8 (brief Rule 1): live fee + share percentages from the config table. */
+  config?: { registrationFee: number; providerSharePercent: number };
   section?: string;
 }) {
+  const regFee = Math.max(0, Math.round(config?.registrationFee ?? 500));
+  const providerSharePct = Math.min(100, Math.max(0, Math.round(config?.providerSharePercent ?? 30)));
+  const platformSharePct = 100 - providerSharePct;
+  const providerSharePkr = Math.round((regFee * providerSharePct) / 100);
+  const platformSharePkr = regFee - providerSharePkr;
   const [patients, setPatients] = useState(initialPatients);
   const [activeTab, setActiveTab] = useState(section === "Register patient" || section === "patients/new" ? "register" : section === "Daily collections" || section === "collections" ? "collections" : "overview");
 
@@ -118,18 +126,18 @@ export function RealFrontDeskPanel({
         </div>
         <div className="card kpi">
           <div className="kpi-label"><WalletCards size={15} /> Registration fee</div>
-          <div className="kpi-value">PKR 500</div>
+          <div className="kpi-value">{pkr(regFee)}</div>
           <div className="kpi-foot">Includes year 1 storage + card</div>
         </div>
         <div className="card kpi">
           <div className="kpi-label"><BadgeCheck size={15} /> Provider share</div>
-          <div className="kpi-value">30%</div>
-          <div className="kpi-foot">PKR 150 posted per patient</div>
+          <div className="kpi-value">{providerSharePct}%</div>
+          <div className="kpi-foot">{pkr(providerSharePkr)} posted per patient</div>
         </div>
         <div className="card kpi">
           <div className="kpi-label"><FileClock size={15} /> Platform share</div>
-          <div className="kpi-value">70%</div>
-          <div className="kpi-foot">PKR 350 reconciled to ledger</div>
+          <div className="kpi-value">{platformSharePct}%</div>
+          <div className="kpi-foot">{pkr(platformSharePkr)} reconciled to ledger</div>
         </div>
       </div>
 
@@ -162,7 +170,7 @@ export function RealFrontDeskPanel({
           <div className="card-head">
             <div>
               <h2 className="card-title">Front desk collections &amp; revenue split</h2>
-              <div className="card-caption">PKR 500 registration fee · 30% provider share, 70% platform share posted to ledger</div>
+              <div className="card-caption">Registration fee from config · {providerSharePct}% provider share, {platformSharePct}% platform share posted to ledger</div>
             </div>
             <Badge type="verified">Balanced</Badge>
           </div>
@@ -170,17 +178,17 @@ export function RealFrontDeskPanel({
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
               <div className="rounded-xl bg-slate-50 p-4">
                 <div className="text-[10px] text-slate-500 font-bold uppercase">Total Collected</div>
-                <div className="text-xl font-extrabold text-slate-800 mt-1">{pkr(patients.length * 500)}</div>
+                <div className="text-xl font-extrabold text-slate-800 mt-1">{pkr(patients.length * regFee)}</div>
                 <div className="text-[9px] text-slate-400 mt-0.5">{patients.length} registration receipts</div>
               </div>
               <div className="rounded-xl bg-emerald-50/60 p-4 border border-emerald-100">
-                <div className="text-[10px] text-emerald-800 font-bold uppercase">Provider Earnings (30%)</div>
-                <div className="text-xl font-extrabold text-emerald-800 mt-1">{pkr(patients.length * 150)}</div>
+                <div className="text-[10px] text-emerald-800 font-bold uppercase">Provider Earnings ({providerSharePct}%)</div>
+                <div className="text-xl font-extrabold text-emerald-800 mt-1">{pkr(patients.length * providerSharePkr)}</div>
                 <div className="text-[9px] text-emerald-600 mt-0.5">Retained by clinic</div>
               </div>
               <div className="rounded-xl bg-teal-50/60 p-4 border border-teal-100">
-                <div className="text-[10px] text-teal-800 font-bold uppercase">Platform Share (70%)</div>
-                <div className="text-xl font-extrabold text-teal-800 mt-1">{pkr(patients.length * 350)}</div>
+                <div className="text-[10px] text-teal-800 font-bold uppercase">Platform Share ({platformSharePct}%)</div>
+                <div className="text-xl font-extrabold text-teal-800 mt-1">{pkr(patients.length * platformSharePkr)}</div>
                 <div className="text-[9px] text-teal-600 mt-0.5">Storage &amp; network fee</div>
               </div>
             </div>

@@ -45,6 +45,8 @@ export function RealPatientPortal({
   const [aiAmount, setAiAmount] = useState("1800");
   const [aiDate, setAiDate] = useState(new Date().toISOString().slice(0, 10));
   const [aiConfirmed, setAiConfirmed] = useState(false);
+  const [uploadError, setUploadError] = useState("");
+  const [storageWarning, setStorageWarning] = useState("");
 
   // Filter states
   const [timelineFilter, setTimelineFilter] = useState("All activity");
@@ -130,14 +132,19 @@ export function RealPatientPortal({
   const handleConfirmAiUpload = async () => {
     if (!aiTitle.trim() || Number(aiAmount) <= 0) return;
     setSubmitting(true);
+    setUploadError("");
     try {
-      await savePatientIngestion({
+      const res = await savePatientIngestion({
         title: aiTitle.trim(),
         amount: Number(aiAmount),
         date: aiDate,
         fileName: fileName || "uploaded-document.pdf",
       });
       setAiConfirmed(true);
+      setStorageWarning(res.warning || "");
+    } catch (err: unknown) {
+      // P2-7: the 100%-quota upload block lands here with its friendly message.
+      setUploadError(err instanceof Error ? err.message : "Could not save the document.");
     } finally {
       setSubmitting(false);
     }
@@ -307,22 +314,32 @@ export function RealPatientPortal({
               </div>
             </section>
 
-            {/* Storage Quota */}
+            {/* Storage Quota (P2-7: real numbers from the config quota + ingestion sizes) */}
             <section className="card">
               <div className="card-head">
                 <div>
                   <h2 className="card-title">Record storage</h2>
-                  <div className="card-caption">0 MB of 1024 MB used · Base plan</div>
+                  <div className="card-caption">{patient.storageUsedMb ?? 0} MB of {patient.storageQuotaMb ?? 1024} MB used · Base plan</div>
                 </div>
+                <Badge type={data.storagePct >= 100 ? "alert" : data.storagePct >= 80 ? "pending" : "verified"}>{data.storagePct}%</Badge>
               </div>
               <div className="card-body space-y-3">
                 <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100">
-                  <div className="h-full bg-emerald-600 transition-all" style={{ width: "1%" }} />
+                  <div
+                    className={`h-full transition-all ${data.storagePct >= 100 ? "bg-red-500" : data.storagePct >= 80 ? "bg-amber-500" : "bg-emerald-600"}`}
+                    style={{ width: `${Math.max(data.storagePct, 1)}%` }}
+                  />
                 </div>
                 <div className="flex justify-between text-[9px] text-slate-400">
-                  <span>100% capacity remaining</span>
+                  <span>{data.storagePct >= 100 ? "Storage full — uploads blocked" : `${100 - data.storagePct}% capacity remaining`}</span>
                   <span>1 GB included</span>
                 </div>
+                {data.storagePct >= 100 && (
+                  <div className="notice coral">
+                    <LockKeyhole size={13} className="shrink-0" />
+                    <span>You have reached 100% of your plan. New document uploads are blocked until you upgrade — reading every existing record stays available.</span>
+                  </div>
+                )}
                 <div className="notice amber mt-2">
                   <LockKeyhole size={13} className="shrink-0" />
                   <span>Unpaid renewals never block reading existing records. Only new uploads are gated at 100% quota.</span>
@@ -693,6 +710,7 @@ export function RealPatientPortal({
             </div>
             <h3 className="mt-3 text-sm font-bold">Saved to your health record</h3>
             <p className="mt-1 text-[10px] text-slate-500">Tagged AI-read · patient-confirmed.</p>
+            {storageWarning && <div className="notice amber mt-3 text-left"><span>{storageWarning}</span></div>}
             <Button className="mt-4" variant="secondary" onClick={() => { setUploadModalOpen(false); setAiExtracted(false); setAiConfirmed(false); }}>
               Done
             </Button>
@@ -703,6 +721,7 @@ export function RealPatientPortal({
               <Eye size={14} className="shrink-0" />
               <span>Review and confirm the extracted values before saving to your timeline.</span>
             </div>
+            {uploadError && <div className="notice coral"><span>{uploadError}</span></div>}
             <div className="form-grid">
               <div className="field">
                 <label>Document title</label>

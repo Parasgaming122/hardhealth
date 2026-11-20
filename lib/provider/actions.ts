@@ -3,6 +3,7 @@
 import { createSupabaseAdminClient, createSupabaseServerClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import crypto from "node:crypto";
+import { readPlatformConfig } from "@/lib/admin/config";
 
 /**
  * Resolve the caller's provider organization from their ACTIVE staff role
@@ -48,7 +49,31 @@ export async function registerRealPatient(input: {
   if (!user) throw new Error("Unauthorized");
 
   const admin = createSupabaseAdminClient();
-
+  // Brief Rule 1: fees and the provider share come from the config table —
+  // never hard-coded. Falls back to the brief-22 defaults pre-migration.
+  const config = await readPlatformConfig();
+  const regFee = Math.max(0, Math.round(config.registration_fee));
+  const providerSharePercent = Math.min(100, Math.max(0, Math.round(config.provider_share_percent)));
+  // Brief Rule 4: "every paid invoice COLLECTED BY A PROVIDER creates one
+  // revenue split" — the collecting desk's provider org is stamped onto the
+  // invoice and the provider-side ledger entry so the provider admin's
+  // earnings ledger can find it (Phase 3 verification caught this omission).
+  const { data: deskRole } = await admin
+    .from("user_roles")
+    .select("provider_id")
+    .eq("user_id", user.id)
+    .eq("role", "front_desk")
+    .eq("is_active", true)
+    .not("provider_id", "is", null)
+    .order("created_at")
+    .limit(1)
+    .maybeSingle();
+  if (!deskRole?.provider_id) {
+    throw new Error(
+      "Your account has no active front desk role attached to a provider organization. Ask a provider admin or platform admin to assign one before registering patients."
+    );
+  }
+  const deskProviderId = deskRole.provider_id as string;
   // CNIC identity (brief 5.2 / 11.10): normalize to 13 digits so formatting
   // variants of the same card collide on the DB unique index, and reject
   // duplicates BEFORE creating any invoice/ledger/audit rows.
@@ -134,12 +159,12 @@ export async function registerRealPatient(input: {
     throw new Error(`Could not register patient: ${pError?.message}`);
   }
 
-  // 2. Insert registration invoice (PKR 500)
-  const regFee = 500;
+  // 2. Insert registration invoice (brief 22: registration_fee from config, default PKR 500)
   const { data: invoice } = await admin
     .from("invoices")
     .insert({
       patient_id: newPatient.id,
+      provider_id: deskProviderId,
       invoice_type: "registration",
       total_amount: regFee,
       status: "paid",
@@ -151,9 +176,10 @@ export async function registerRealPatient(input: {
     .select()
     .single();
 
-  // 3. Post revenue split to ledger (30% provider PKR 150, 70% platform PKR 350)
+  // 3. Post revenue split to ledger (brief Rule 4: shares sum to the invoice;
+  // provider share percent from config, platform share is the remainder)
   if (invoice) {
-    const providerShare = Math.round(regFee * 0.3);
+    const providerShare = Math.round((regFee * providerSharePercent) / 100);
     const platformShare = regFee - providerShare;
 
     await admin.from("ledger_entries").insert([
@@ -166,6 +192,7 @@ export async function registerRealPatient(input: {
       {
         invoice_id: invoice.id,
         ledger_side: "provider",
+        provider_id: deskProviderId,
         amount: providerShare,
         payout_status: "pending",
       },
@@ -176,9 +203,10 @@ export async function registerRealPatient(input: {
   await admin.from("audit_events").insert({
     actor_user_id: user.id,
     patient_id: newPatient.id,
+    provider_id: deskProviderId,
     event_type: "write",
     resource_type: "patient_registration",
-    metadata: { health_id: healthId, receipt_no: receiptNo, fee: regFee },
+    metadata: { health_id: healthId, receipt_no: receiptNo, fee: regFee, provider_share_percent: providerSharePercent },
   });
 
   revalidatePath("/front-desk/patients");
@@ -217,7 +245,11 @@ export async function issueRealPrescription(input: {
   const admin = createSupabaseAdminClient();
   const providerId = await requireActiveProviderId(admin, user.id, "doctor");
 
-  // Generate prescription code and token
+  // Generate prescription code and token. Brief Rule 1: validity and fills
+  // come from the config table (brief 22), never hard-coded.
+  const config = await readPlatformConfig();
+  const validDays = Math.min(365, Math.max(1, Math.round(config.prescription_valid_days)));
+  const maxFills = Math.min(20, Math.max(1, Math.round(config.prescription_max_fills)));
   const randomSuffix = Math.random().toString(36).slice(2, 6).toUpperCase();
   const randomSuffix2 = Math.random().toString(36).slice(2, 6).toUpperCase();
   const prescriptionCode = `RX-${randomSuffix}-${randomSuffix2}`;
@@ -236,9 +268,9 @@ export async function issueRealPrescription(input: {
       consultation_cost: input.consultationCost || 0,
       note: input.note || null,
       status: "active",
-      max_fills: 1,
+      max_fills: maxFills,
       fills_used: 0,
-      expires_at: new Date(Date.now() + 30 * 86400000).toISOString(),
+      expires_at: new Date(Date.now() + validDays * 86400000).toISOString(),
     })
     .select()
     .single();

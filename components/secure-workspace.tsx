@@ -10,9 +10,10 @@ import { SecureMobileNav } from "@/components/secure-mobile-nav";
 import { RealPatientPortal } from "@/components/real-patient-portal";
 import { RealFrontDeskPanel } from "@/components/real-front-desk-panel";
 import { RealDoctorPanel } from "@/components/real-doctor-panel";
+import { AdminConfigEditor } from "@/components/admin-config-editor";
+import { RealProviderAdminPanel } from "@/components/real-provider-admin-panel";
 import { RealPharmacyPanel } from "@/components/real-pharmacy-panel";
 import { RealLabPanel } from "@/components/real-lab-panel";
-import { ProviderAdminPanel } from "@/components/panels/provider-admin-panel";
 import { PlatformAdminPanel } from "@/components/panels/platform-admin-panel";
 import { signOutAction } from "@/app/login/actions";
 import { workspaceConfig, workspaceSlugs, isPlatformAdmin, type WorkspacePayload, type WorkspaceSlug } from "@/lib/auth/roles";
@@ -21,6 +22,8 @@ import type { ProviderRecord } from "@/lib/admin/provider-actions";
 import type { RealPatientPortalData } from "@/lib/patient/real-patient";
 import type { RealPatientSummary } from "@/lib/provider/real-provider";
 import type { DoctorRecentPrescription, DoctorTemplateSummary } from "@/lib/provider/types";
+import type { PlatformConfig } from "@/lib/admin/config";
+import type { ProviderAdminData } from "@/lib/provider-admin/types";
 import { pkr } from "@/lib/domain";
 
 const icons = { overview: LayoutDashboard, timeline: Activity, prescriptions: Pill, reports: FileText, expenses: WalletCards, providers: Shield, billing: FileClock, settings: Settings2, patients: UsersRound, collections: WalletCards, resolve: ScanLine, dispenses: Pill, bills: FileClock, staff: UsersRound, ledger: WalletCards, config: Settings2, audit: ClipboardList, users: UsersRound } as const;
@@ -129,6 +132,9 @@ export function SecureWorkspace({
   realPatients = [],
   doctorTemplates = [],
   doctorRecentPrescriptions = [],
+  platformConfig,
+  frontDeskConfig,
+  providerAdminData,
 }: {
   workspace: WorkspaceSlug;
   sections: string[];
@@ -141,6 +147,9 @@ export function SecureWorkspace({
   realPatients?: RealPatientSummary[];
   doctorTemplates?: DoctorTemplateSummary[];
   doctorRecentPrescriptions?: DoctorRecentPrescription[];
+  platformConfig?: PlatformConfig;
+  frontDeskConfig?: PlatformConfig;
+  providerAdminData?: ProviderAdminData;
 }) {
   const router = useRouter();
   const config = workspaceConfig[workspace];
@@ -251,7 +260,11 @@ export function SecureWorkspace({
               </section>
             </div>
           ) : currentKey === "config" ? (
-            <PlatformAdminPanel section="Configuration" />
+            <div className="space-y-6">
+              {/* P2-8: the REAL config editor — reads/writes the live config table (brief Rule 1). */}
+              <AdminConfigEditor initialConfig={platformConfig ?? {}} />
+              <PlatformAdminPanel section="Finance & ledgers" />
+            </div>
           ) : currentKey === "audit" ? (
             <PlatformAdminPanel section="Audit log" />
           ) : (
@@ -267,16 +280,23 @@ export function SecureWorkspace({
             patients={realPatients}
             templates={doctorTemplates}
             recentPrescriptions={doctorRecentPrescriptions}
+            doctorName={displayName}
+            providerName={roles.find((r) => r.role === "doctor")?.provider_name || "H.A.R.D Clinic"}
             section={panelSection}
           />
         ) : workspace === "front-desk" ? (
-          <RealFrontDeskPanel patients={realPatients} section={panelSection} />
+          <RealFrontDeskPanel
+            patients={realPatients}
+            config={frontDeskConfig ? { registrationFee: frontDeskConfig.registration_fee, providerSharePercent: frontDeskConfig.provider_share_percent } : undefined}
+            section={panelSection}
+          />
         ) : workspace === "pharmacy" ? (
           <RealPharmacyPanel section={panelSection} />
         ) : workspace === "lab" ? (
           <RealLabPanel patients={realPatients} section={panelSection} />
         ) : workspace === "provider-admin" ? (
-          <ProviderAdminPanel section={panelSection} />
+          // P2-9/P2-10: the real provider-admin workspace (staff + ledger + payout).
+          <RealProviderAdminPanel data={providerAdminData ?? { providerId: "", providerName: "", providerType: "", staff: [], ledger: [], kpis: { patientsRegistered: 0, documentsIssued: 0, feesCollected: 0, shareEarned: 0, sharePending: 0, outstandingInvoices: 0, activeStaff: 0 } }} section={panelSection} />
         ) : null}
 
         <p className="secure-footer-note"><Shield size={14} /> Connected to H.A.R.D Supabase database. Real account records only.</p>

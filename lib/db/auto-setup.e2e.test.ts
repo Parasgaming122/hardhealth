@@ -128,6 +128,8 @@ d("auto DB setup — real postgres e2e", () => {
          to_regprocedure('public.resolve_prescription(text)') is not null as resolve_rpc,
          to_regclass('public.prescription_templates') is not null as templates,
          to_regprocedure('public.doctor_save_template(text, jsonb, uuid)') is not null as template_rpc,
+         to_regclass('public.config') is not null as config_table,
+         to_regprocedure('public.platform_set_config(text, text)') is not null as config_rpc,
          (select count(*)::int from hard_setup.schema_migrations) as versions,
          (select count(*)::int from information_schema.tables where table_schema = 'public') as public_tables
        `
@@ -141,6 +143,8 @@ d("auto DB setup — real postgres e2e", () => {
     expect(row.resolve_rpc).toBe(true);
     expect(row.templates).toBe(true);
     expect(row.template_rpc).toBe(true);
+    expect(row.config_table).toBe(true);
+    expect(row.config_rpc).toBe(true);
     expect(Number(row.versions)).toBe(MIGRATIONS.length);
     expect(Number(row.public_tables)).toBeGreaterThanOrEqual(12);
 

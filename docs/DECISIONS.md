@@ -268,3 +268,38 @@ command's timeout does the final cleanup. The e2e Postgres cluster on 127.0.0.1:
 between calls (it runs outside the reaped process tree). tempfile.org moved its API: uploads are now
 `POST https://tempfile.org/api/upload/local` with field `files` + `expiryHours` (1/6/24/48), not
 `POST /api` with `file` — the old endpoint 404s.
+
+## D22 — Config is a table + audited admin RPCs, consumed via fallback defaults (2026-11-20, Session 10)
+
+Brief Rule 1 ("fees, plans, quotas, share, validity, fills live in config, never hard-coded") is
+implemented as migration `20261121000000` (`public.config`, RLS no-policy + revoked grants,
+brief-22 seeds) with `platform_get/set_config` SECURITY DEFINER RPCs behind
+`assert_platform_admin`, every write audited as `config_update` (old + new value). Server
+consumers read via `readPlatformConfig()` which falls back to the brief-22 defaults when the
+table is missing — so pre-migration databases run unchanged and the editor shows a friendly
+hint instead of an error. Two structural rules learned: (1) "use server" files may ONLY export
+async functions — constants/types live in sibling plain modules (`lib/admin/config-defaults.ts`,
+`lib/provider-admin/types.ts`); (2) a client component must never statically import a module
+that reaches `next/headers` (pulls the admin client into the client graph and breaks the
+Turbopack build with a misleading "Pages Router" error) — client imports point at
+config-defaults only.
+
+## D23 — Storage accounting is simulated-but-honest (2026-11-20, Session 10)
+
+The prototype stores no real files, so each AI-ingested document is accounted at a fixed
+`SIMULATED_DOCUMENT_MB = 340` recorded in the ingestion audit event's metadata; the meter sums
+those rows and the quota comes from `config.base_plan_quota_mb`. The 100% block happens BEFORE
+any write (brief Rule 5 + acceptance: block uploads, keep reads). Three documents (1020/1024 MB)
+trip the ≥80% amber alert; the fourth is refused. This exercises the exact production policy
+without a storage bucket, and swapping 340 MB for real file sizes later changes one constant.
+
+## D24 — The audit trail is part of every mutation: fail the action, not the audit (2026-11-20, Session 10)
+
+Phase 3 verification caught two audit-integrity bugs: (1) `registerRealPatient` never stamped
+`provider_id` on the invoice/provider ledger row, so the provider admin's earnings ledger could
+never find its rows — the collecting desk's ACTIVE front_desk org is now resolved and stamped on
+both (brief Rule 4); (2) `setPayoutStatusAction` swallowed audit-insert failures, silently
+producing ledger changes without an audit row when the live CHECK did not yet know
+`payout_update`. The action now ROLLS BACK the status change when the audit write fails and
+raises a migration-hint error — state and audit trail can never diverge. Rule for new mutations:
+check the audit insert result; on failure, undo the mutation and surface the error.
