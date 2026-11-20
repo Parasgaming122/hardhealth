@@ -25,3 +25,17 @@ export interface DoctorTemplateSummary {
   items: PrescriptionItemDraft[];
   updatedAt: string;
 }
+
+/** One of the calling doctor's recent prescriptions, for one-tap repeat (brief 7.2). */
+export interface DoctorRecentPrescription {
+  id: string;
+  code: string;
+  status: string;
+  issuedAt: string;
+  consultationCost: number;
+  note: string | null;
+  patientId: string;
+  patientName: string;
+  patientHealthId: string;
+  items: PrescriptionItemDraft[];
+}

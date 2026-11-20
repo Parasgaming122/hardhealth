@@ -20,7 +20,7 @@ import type { AdminApprovedProvider, AdminDirectoryUser } from "@/lib/admin/type
 import type { ProviderRecord } from "@/lib/admin/provider-actions";
 import type { RealPatientPortalData } from "@/lib/patient/real-patient";
 import type { RealPatientSummary } from "@/lib/provider/real-provider";
-import type { DoctorTemplateSummary } from "@/lib/provider/types";
+import type { DoctorRecentPrescription, DoctorTemplateSummary } from "@/lib/provider/types";
 import { pkr } from "@/lib/domain";
 
 const icons = { overview: LayoutDashboard, timeline: Activity, prescriptions: Pill, reports: FileText, expenses: WalletCards, providers: Shield, billing: FileClock, settings: Settings2, patients: UsersRound, collections: WalletCards, resolve: ScanLine, dispenses: Pill, bills: FileClock, staff: UsersRound, ledger: WalletCards, config: Settings2, audit: ClipboardList, users: UsersRound } as const;
@@ -128,6 +128,7 @@ export function SecureWorkspace({
   patientPortalData,
   realPatients = [],
   doctorTemplates = [],
+  doctorRecentPrescriptions = [],
 }: {
   workspace: WorkspaceSlug;
   sections: string[];
@@ -139,6 +140,7 @@ export function SecureWorkspace({
   patientPortalData?: RealPatientPortalData;
   realPatients?: RealPatientSummary[];
   doctorTemplates?: DoctorTemplateSummary[];
+  doctorRecentPrescriptions?: DoctorRecentPrescription[];
 }) {
   const router = useRouter();
   const config = workspaceConfig[workspace];
@@ -261,7 +263,12 @@ export function SecureWorkspace({
         ) : workspace === "patient" && patientPortalData ? (
           <RealPatientPortal data={patientPortalData} initialSection={panelSection} onSectionChange={handleSectionChange} />
         ) : workspace === "doctor" ? (
-          <RealDoctorPanel patients={realPatients} templates={doctorTemplates} section={panelSection} />
+          <RealDoctorPanel
+            patients={realPatients}
+            templates={doctorTemplates}
+            recentPrescriptions={doctorRecentPrescriptions}
+            section={panelSection}
+          />
         ) : workspace === "front-desk" ? (
           <RealFrontDeskPanel patients={realPatients} section={panelSection} />
         ) : workspace === "pharmacy" ? (

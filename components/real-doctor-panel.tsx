@@ -1,22 +1,24 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { BadgeCheck, BookmarkPlus, Check, FilePlus2, LayoutTemplate, Pill, Plus, QrCode, Search, Stethoscope, Trash2, UsersRound, X } from "lucide-react";
+import { BadgeCheck, BookmarkPlus, Check, FilePlus2, History, LayoutTemplate, Pill, Plus, QrCode, Repeat, Search, Stethoscope, Trash2, UsersRound, X } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { Badge, Button } from "@/components/ui";
 import { dateLabel, pkr } from "@/lib/domain";
 import { medicineCatalogue } from "@/lib/mock-data";
-import type { DoctorTemplateSummary, PrescriptionItemDraft, RealPatientSummary } from "@/lib/provider/types";
+import type { DoctorRecentPrescription, DoctorTemplateSummary, PrescriptionItemDraft, RealPatientSummary } from "@/lib/provider/types";
 import { issueRealPrescription } from "@/lib/provider/actions";
 import { deleteDoctorTemplateAction, saveDoctorTemplateAction } from "@/lib/provider/template-actions";
 
 export function RealDoctorPanel({
   patients,
   templates: initialTemplates = [],
+  recentPrescriptions: initialRecentPrescriptions = [],
   section = "Today",
 }: {
   patients: RealPatientSummary[];
   templates?: DoctorTemplateSummary[];
+  recentPrescriptions?: DoctorRecentPrescription[];
   section?: string;
 }) {
   const [selectedPatientId, setSelectedPatientId] = useState(patients[0]?.id || "");
@@ -49,7 +51,18 @@ export function RealDoctorPanel({
   const [templateStatus, setTemplateStatus] = useState("");
   const [templateError, setTemplateError] = useState("");
 
+  // Recent prescriptions (brief 7.2: repeat-last-prescription). Props sync after
+  // revalidatePath per the D14 convention so newly issued prescriptions appear here.
+  const [recentPrescriptions, setRecentPrescriptions] = useState<DoctorRecentPrescription[]>(initialRecentPrescriptions);
+  useEffect(() => setRecentPrescriptions(initialRecentPrescriptions), [initialRecentPrescriptions]);
+  const [repeatStatus, setRepeatStatus] = useState("");
+  const [repeatError, setRepeatError] = useState("");
+
   const selectedPatient = patients.find((p) => p.id === selectedPatientId) || patients[0];
+
+  // Brief 7.2: the selected patient's most recent prescription — surfaced as a
+  // one-tap "repeat last" button above the full recent list.
+  const lastForPatient = recentPrescriptions.find((rx) => rx.patientId === selectedPatientId);
 
   const handleAddMedicine = () => {
     if (!medicineQuery.trim()) return;
@@ -116,6 +129,25 @@ export function RealDoctorPanel({
     setItems(template.items.map((it) => ({ ...it })));
     setTemplateError("");
     setTemplateStatus(`Applied "${template.name}" — ${template.items.length} medicine${template.items.length === 1 ? "" : "s"} loaded. Review and issue.`);
+  };
+
+  // ---- Repeat-last-prescription (brief 7.2: prescribe in under 30 seconds) ----
+
+  const applyRepeat = (rx: DoctorRecentPrescription) => {
+    if (rx.items.length === 0) {
+      setRepeatError(`"${rx.code}" has no medicine lines to repeat.`);
+      setRepeatStatus("");
+      return;
+    }
+    const switchedPatient = rx.patientId !== selectedPatientId;
+    setSelectedPatientId(rx.patientId);
+    setItems(rx.items.map((it) => ({ ...it })));
+    if (rx.note) setNote(rx.note);
+    if (rx.consultationCost > 0) setConsultationCost(String(rx.consultationCost));
+    setRepeatError("");
+    setRepeatStatus(
+      `Repeated ${rx.code} for ${rx.patientName} — ${rx.items.length} medicine${rx.items.length === 1 ? "" : "s"} loaded${switchedPatient ? " (patient switched)" : ""}. Complaint and diagnosis are not stored on the original — update them, then issue.`
+    );
   };
 
   const handleSaveTemplate = async () => {
@@ -372,6 +404,62 @@ export function RealDoctorPanel({
 
                   {templateError && <div className="notice coral mt-2">{templateError}</div>}
                   {templateStatus && <div className="notice mt-2">{templateStatus}</div>}
+                </div>
+
+                {/* Repeat-last-prescription (brief 7.2 — prescribe in under 30 seconds) */}
+                <div className="pt-2">
+                  <div className="mb-2 flex items-center justify-between">
+                    <div className="text-xs font-bold text-slate-800">Recent prescriptions ({recentPrescriptions.length})</div>
+                    <div className="text-[10px] text-slate-400">Repeat loads the same medicines onto a new prescription</div>
+                  </div>
+
+                  {recentPrescriptions.length === 0 ? (
+                    <div className="text-[10px] text-slate-400">
+                      Nothing to repeat yet — prescriptions you issue here appear in this list for one-tap reuse.
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {lastForPatient && (
+                        <button
+                          type="button"
+                          title={`Repeat ${lastForPatient.code} for ${lastForPatient.patientName}`}
+                          className="flex w-full items-center justify-between rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2.5 text-left transition-colors hover:bg-emerald-100"
+                          onClick={() => applyRepeat(lastForPatient)}
+                        >
+                          <span className="flex items-center gap-2">
+                            <History size={13} className="shrink-0 text-emerald-700" />
+                            <span>
+                              <span className="block text-xs font-bold text-emerald-900">
+                                Repeat last prescription for {lastForPatient.patientName}
+                              </span>
+                              <span className="block text-[10px] text-emerald-800/80">
+                                {lastForPatient.code} · {dateLabel(lastForPatient.issuedAt)} · {lastForPatient.items.length} medicine{lastForPatient.items.length === 1 ? "" : "s"} · {pkr(lastForPatient.consultationCost)}
+                              </span>
+                            </span>
+                          </span>
+                          <Repeat size={14} className="shrink-0 text-emerald-700" />
+                        </button>
+                      )}
+
+                      {recentPrescriptions.map((rx) => (
+                        <div key={rx.id} className="flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50/50 p-2.5 text-xs">
+                          <div>
+                            <span className="font-mono font-bold text-slate-800">{rx.code}</span>
+                            <span className="text-slate-500"> — {rx.patientName} ({rx.patientHealthId})</span>
+                            <div className="text-[10px] text-slate-400">
+                              {dateLabel(rx.issuedAt)} · {rx.items.length} medicine{rx.items.length === 1 ? "" : "s"} · status {rx.status} · {pkr(rx.consultationCost)}
+                            </div>
+                          </div>
+                          <Button size="small" variant="secondary" onClick={() => applyRepeat(rx)}>
+                            <Repeat size={11} /> Repeat
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {repeatError && <div className="notice coral mt-2">{repeatError}</div>}
+                  {repeatStatus && <div className="notice mt-2">{repeatStatus}</div>}
                 </div>
 
                 {/* Medicine Items */}

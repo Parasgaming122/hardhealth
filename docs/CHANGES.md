@@ -5,6 +5,72 @@ backup zip + tempfile URL produced.
 
 ---
 
+## 2026-11-20 — Session 9: P2-5 closed live (templates DDL applied by owner) + P2-5b repeat-last-prescription
+
+**Context**: Sandbox was recycled — the working tree was restored from
+`hard_phase2_part8_templates.zip` (zip excludes `.env.local`; recreated from the owner-supplied
+values). Typecheck 0 errors / tests 37/37 straight after restore. The owner had applied migration
+`20261119200000_doctor_prescription_templates.sql` ("done") — probe confirmed it live:
+`prescription_templates` readable (0 rows), `doctor_list_templates` +
+`doctor_save_template` exist and correctly refuse a keyless service-role call (42501
+Authentication required — `assert_doctor()` working). Live baseline: 4 orgs, 1 patient
+(HARD-000102), 2 auth users, 0 prescriptions/templates/cost items, 504 audit events.
+**P2-5 is fully closed (code + DDL live).** Then the session took the next backlog item,
+**P2-5b repeat-last-prescription** (brief 7.2: templates + repeat-last-prescription, <30s issuing).
+
+### Part 1 — P2-5b feature (6 files, NO new migration)
+
+Data access decision: `prescriptions` has RLS + revoked `authenticated` grants, but the app's
+established trust model already reads clinical tables server-side with the admin client after
+`auth.getUser()` (patient directory, `issueRealPrescription`). `listDoctorRecentPrescriptions`
+follows that pattern, strictly self-scoped to `doctor_user_id = <authenticated user id>` — a
+doctor only ever sees their own issuing history. Degrades to `[]` on any read failure (D10), so
+the workspace never 500s.
+
+1. `lib/provider/types.ts` — new `DoctorRecentPrescription` (id, code, status, issuedAt,
+   consultationCost, note, patientId/Name/HealthId, items).
+2. `lib/provider/real-provider.ts` — `listDoctorRecentPrescriptions(userId, limit = 8)`: admin
+   client, embeds `patients(full_name, health_id)` + `prescription_items`, orders
+   `issued_at desc`; rows asserted to an explicit `RxRow` type (supabase-js types embeds as a
+   union with an inner-error shape) and normalized defensively via the shared
+   `normalizeTemplateItems`.
+3. `app/[workspace]/[[...section]]/page.tsx` — doctor workspace fetches
+   `listDoctorRecentPrescriptions(user.id)` alongside templates; passes
+   `doctorRecentPrescriptions` to `SecureWorkspace`.
+4. `components/secure-workspace.tsx` — `doctorRecentPrescriptions` prop + pass-through.
+5. `components/real-doctor-panel.tsx` — "Recent prescriptions" strip between the saved-templates
+   block and the medicines editor: (a) highlighted emerald banner
+   **"Repeat last prescription for {selected patient}"** (code · date · med count · fee) shown
+   whenever the selected patient has history; (b) per-row Repeat buttons for the doctor's last 8
+   prescriptions across patients (code — patient (health id) · date · count · status · fee);
+   (c) `applyRepeat()` deep-copies items, restores note + consultation fee, auto-switches the
+   selected patient to the row's patient, and status-reminds that complaint/diagnosis are not
+   stored on the original (per-visit fields). Props→state sync per D14.
+6. `lib/provider/actions.ts` — `issueRealPrescription` now also revalidates
+   `/doctor/prescriptions/new` + `/doctor/overview` so the repeat list + template chips refresh
+   right after issuing (matches `revalidateDoctorPaths()` in template-actions).
+
+### Part 2 — Verification performed
+
+- `pnpm typecheck` 0 errors · `pnpm test` 37/37 · `pnpm build` success.
+- **Live runtime verification** (`scripts/verify_s9_repeat.mjs`, fresh test doctor on Cedar via
+  `create_test_doctor_s9.js`) — **15/15**: login lands (D18: on /patient/overview, which
+  auto-provisions a HARD-000103 patient row for every new user — account for it, clean it up);
+  empty state; issue #1 (RX-78S8-3LMX); recent list syncs without reload; highlighted banner
+  shows code/date/fee; repeat reloads 1 medicine + note + fee 3500 into the composer; issue #2
+  from the repeated state (RX-KBDS-8UT6); DB: 2 prescriptions both Cedar/active/3500/same
+  patient; item-level fidelity (repeat == original, all 6 fields); 2 consultation cost items;
+  2 prescription audit rows; zero client errors. Screenshot confirmed the strip layout.
+- **Cleanup** (`scripts/cleanup_s9.js`): FK-order deletes (audit → cost → items → rx →
+  auto-provisioned patient → auth user) — baseline re-verified exactly
+  (4 orgs / 1 patient / 2 users / 0 rx / 0 templates / 0 costs / 504 audits).
+
+**Result**: P2-5b closed. Doctor's <30s flow now has three entry points: catalogue search,
+saved templates, and one-tap repeat. Next backlog: P2-6 printable prescription, P2-7 storage
+meter block, P2-8 config table.
+
+---
+
 ## 2026-11-19 — Session 8: P2-5 doctor prescription templates + provider_id bug fix
 
 **Context**: Session 7 had finished the auto DB setup but was cut off before its commit/backup — this

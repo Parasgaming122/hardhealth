@@ -285,6 +285,8 @@ export async function issueRealPrescription(input: {
   });
 
   revalidatePath("/doctor/prescriptions");
+  revalidatePath("/doctor/prescriptions/new");
+  revalidatePath("/doctor/overview");
   revalidatePath("/patient/prescriptions");
   revalidatePath("/patient/overview");
 

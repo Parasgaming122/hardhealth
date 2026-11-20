@@ -66,15 +66,21 @@ Full inventory of roles/pages/components/APIs vs `HARD_Developer_Brief_v2.md`, d
   Verified with real-Postgres e2e (4/4), real Next boot (applied 5 migrations in 73 ms), manual
   install flow (6/6), token gate (6/6), no-env + bad-URL boots, and a 21/21 regression run.
   See CHANGES.md Session 7 + DECISIONS.md D17/D18.
-- [done] **P2-5** Doctor prescription templates — CLOSED (Session 8, code + DDL verified;
-  DDL applied to live DB pending owner): `prescription_templates` table + doctor-only self-scoped
-  RPCs (assert_doctor, save-with-overwrite-by-name, delete, list) + template chips/save UI in the
-  real doctor panel. Verified: 37/37 unit (incl. new guardrail test), 4/4 real-PG e2e, 21/21 RPC
-  functional suite, 14/14 live pre-migration runtime checks (graceful degrade + hint naming
-  20261119200000). Same session found+fixed the provider_id NOT NULL bug in ALL provider actions
-  (see CHANGES.md Session 8 Part 2 / D20) — real prescriptions now issue end-to-end.
-- [todo] **P2-5b** Repeat-last-prescription (brief 7.2) — one-tap "repeat" on recent prescriptions;
-  natural follow-up now that templates + a working issue flow exist.
+- [done] **P2-5** Doctor prescription templates — CLOSED (Sessions 8-9): `prescription_templates`
+  table + doctor-only self-scoped RPCs (assert_doctor, save-with-overwrite-by-name, delete, list) +
+  template chips/save UI in the real doctor panel. Session 9 probe confirmed the owner applied
+  migration 20261119200000 live: table readable (0 rows), both RPCs exist and correctly refuse
+  unauthenticated calls (42501 Authentication required). Verified: 37/37 unit (incl. new guardrail
+  test), 4/4 real-PG e2e, 21/21 RPC functional suite, 14/14 live pre-migration runtime checks.
+  Same session found+fixed the provider_id NOT NULL bug in ALL provider actions (see CHANGES.md
+  Session 8 Part 2 / D20) — real prescriptions now issue end-to-end.
+- [done] **P2-5b** Repeat-last-prescription (brief 7.2) — CLOSED (Session 9): "Recent
+  prescriptions" strip in the doctor composer — a highlighted one-tap "Repeat last prescription
+  for {patient}" banner plus per-row Repeat buttons (last 8, newest first). Repeat deep-copies the
+  original's items, restores note + consultation fee, auto-switches the selected patient, and
+  reminds that complaint/diagnosis are per-visit. Verified live: 15/15 Playwright checks (empty
+  state → issue → list syncs via D14 → repeat → issue #2 → DB fidelity: identical items, correct
+  provider/cost/audit rows) + screenshot. See CHANGES.md Session 9.
 - [todo] **P2-6** Printable prescription PDF/print view with QR (brief 5.4).
 - [todo] **P2-7** Storage meter 100% upload block (uploads blocked, reads allowed; brief 5.8/11.5).
 - [todo] **P2-8** Platform config table + real config editor persistence (brief 8.7/22, Rule 1).
