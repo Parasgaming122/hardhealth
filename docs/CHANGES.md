@@ -5,6 +5,69 @@ backup zip + tempfile URL produced.
 
 ---
 
+## 2026-11-20 — Session 11: health-id crash fix (final) + P2-13 amendments + pharmacy resolve hardening
+
+**Context**: The owner reported the production crash `duplicate key value violates unique constraint
+"patients_health_id_key"` when switching to the patient workspace in the admin account, and asked for
+a final fully-verified version. Sandbox had been recycled — restored from
+`hard_phase2_part10_allp2.zip` (Session 10's commit `ef2e981`), `.env.local` rebuilt.
+
+### Root cause of the reported crash
+
+The stack trace matched the ORIGINAL pre-Session-6 `ensurePatientRecord` (`if (error || !inserted)`
++ `serial = count(*)+101`): with the single baseline patient, every new patient row was computed as
+`HARD-000102` → guaranteed duplicate. The live repo already carried the D16 fix; the running build
+predated it. D16's retry had two residual holes (stale `serial += 1` without re-reading max;
+`patients_user_id_key` same-user races unhandled) — both closed this session.
+
+### Changes
+
+1. `lib/patient/health-id.ts` (NEW) — shared `insertPatientWithUniqueHealthId`: fresh
+   `max(health_id)` read on EVERY retry (5 attempts), non-health_id unique violations returned
+   immediately for caller handling. `lib/patient/real-patient.ts` — `ensurePatientRecord` uses it
+   and re-selects by `user_id` on a 23505 (two-tabs race) before throwing. D25.
+2. `lib/provider/actions.ts` — `registerRealPatient` refactored onto the same helper (CNIC
+   friendly errors preserved); NEW `amendRealPrescription` (P2-13, brief Section 6): cancel
+   original → insert v+1 with `supersedes_id` → amended items → `write`/`prescription` audit with
+   `prescription_amended` metadata (no migration needed) → revalidates. Fee NOT re-charged. D26.
+3. `app/api/rx/resolve/route.ts` — uuid-aware lookup (fixes latent 404-on-every-typed-code
+   PostgREST uuid-cast bug), Rule 6 gate (cancelled/expired/dispensed → bare status, no medicines,
+   no patient), 20/min-per-IP in-memory rate limit, every resolve audited as `pharmacy_resolve`.
+4. `components/real-doctor-panel.tsx` — Amend button per recent prescription (gated by status),
+   amber amendment banner with cancel, issue-button switches to `Issue amended prescription v2
+   (cancels RX-…)`, issued screen + print sheet show `v2 · supersedes RX-…`.
+   `lib/provider/types.ts` + `lib/provider/real-provider.ts` — `DoctorRecentPrescription` carries
+   `version`/`supersedesCode` (second query resolves superseded codes).
+5. `lib/patient/types.ts` + `lib/patient/real-patient.ts` + `components/real-patient-portal.tsx` —
+   prescriptions carry `version`/`supersedesCode`/`supersededByCode` (reverse map); portal shows
+   the v-chip and "replaced by RX-…" on the cancelled original.
+6. Tests: `tests/fake-supabase.ts` (NEW chainable admin-client fake), `lib/patient/health-id.test.ts`
+   (NEW, 7 cases incl. the owner's exact scenario + both race shapes),
+   `lib/provider/amend.test.ts` (NEW, 6 cases: happy path, cancelled/dispensed/mismatch/empty
+   guards, expired-revival).
+
+### Verification (all green)
+
+- `npx tsc --noEmit` 0 errors · `npx vitest run` **51 passed** · real-Postgres e2e
+  (embedded PG 18 cluster, D17 recipe re-created in `/home/z/my-project/scripts/prep_e2e_cluster.mjs`)
+  **4/4** — fresh DB builds all 7 migrations · `npm run build` success.
+- Live final run `scripts/verify_s11_final.mjs` **23/23**: A1-A5 the reported admin→patient
+  switch (HARD-000103 provisioned, portal renders, reload stable); E1 config editor with LIVE
+  values (owner applied the config migration — table probed, all 13 defaults present); B0-B10 the
+  amendment flow (banner → v2 issued → DB supersede chain → items → fee charged ONCE → audited);
+  C1-C3 pharmacy resolve (cancelled code → bare status, new code → medicines, resolves audited);
+  D1-D2 patient portal version chain; F1 zero uncaught client errors.
+- Cleanup `scripts/cleanup_s11.js`: live DB restored to its exact baseline (4 orgs / 1 patient
+  HARD-000102 / 2 users / 0 rx / 0 costs / 0 templates).
+
+### Faithfulness status (task.md audit)
+
+All 13 Phase-1 gap rows closed; with P2-13 the LAST open acceptance criterion (amendments) is
+green. Remaining non-built items are exactly the ones the brief itself defers (court + sponsor:
+"later phase / stretch"). No pending owner SQL.
+
+---
+
 ## 2026-11-20 — Session 10: Phase 2 backlog completed (P2-6..P2-10) + Phase 3 acceptance + Phase 4 polish
 
 **Context**: The owner asked to complete the entire remaining TASKS.md backlog at once, then run

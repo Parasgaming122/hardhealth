@@ -195,3 +195,35 @@ Scope exceptions (documented, not gaps in execution):
 Final gate at the end of Session 10: `tsc --noEmit` 0 errors, vitest 38/38, production build OK,
 real-Postgres e2e 4/4 (fresh DB builds all 7 migrations), live acceptance run 34/34,
 live DB restored to its exact baseline afterwards.
+
+---
+
+## Session 11 (2026-11-20) — Final version: crash fix + the last acceptance item
+
+Two things landed after the Session 10 review:
+
+1. **The owner's reported runtime crash was fixed and hardened.** Switching to the patient
+   workspace in the admin account crashed with `duplicate key value violates unique constraint
+   "patients_health_id_key"` — that build still ran the ORIGINAL count-based Health-ID serial
+   (`count(*)+101`), which with one existing patient computes the TAKEN id HARD-000102 every
+   time. Both patient-creation paths now share one hardened helper (fresh `max(health_id)` read
+   per retry, same-user race recovery); 7 new unit tests pin it, and the exact admin→patient
+   switch scenario was re-run live: the portal provisions HARD-000103 and renders. See
+   DECISIONS.md D25.
+2. **Prescription amendments (brief Section 6 / acceptance criteria) — the one remaining scope
+   exception — are now implemented and verified** (P2-13). Amending cancels the old QR (pharmacy
+   resolve paths return a bare `cancelled` status with no medicines — Rule 6), issues a new
+   version linked via `supersedes_id`, keeps the old record (Rule 3), does not re-charge the
+   consultation fee, and writes an audited `prescription_amended` entry. The public
+   `/api/rx/resolve` was also hardened (status gate, per-IP rate limit, resolve auditing) and a
+   latent lookup bug (every typed code 404'd) fixed. See DECISIONS.md D26.
+
+Final gates: `tsc --noEmit` 0 errors · vitest 51 passed · real-Postgres e2e 4/4 (7 migrations) ·
+production build OK · live final run 23/23 · live DB restored to its exact baseline.
+
+**Faithfulness verdict (final): every gap row in the Phase 1 audit above is closed, and every
+acceptance criterion in brief Section 20 is implemented and live-verified.** The only brief
+features not built are the ones the brief itself defers: court access and the sponsor dashboard
+("later phase / stretch"), plus production-only integrations (real payments/SMS/NADRA) listed
+under Section 18 "Out of scope". No migrations are pending; the owner's database is fully
+up to date (config table applied and probed).

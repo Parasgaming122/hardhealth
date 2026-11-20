@@ -26,7 +26,8 @@ export interface DoctorTemplateSummary {
   updatedAt: string;
 }
 
-/** One of the calling doctor's recent prescriptions, for one-tap repeat (brief 7.2). */
+/** One of the calling doctor's recent prescriptions, for one-tap repeat (brief 7.2)
+ *  or amendment (brief Section 6: new version + cancel the old QR). */
 export interface DoctorRecentPrescription {
   id: string;
   code: string;
@@ -37,5 +38,7 @@ export interface DoctorRecentPrescription {
   patientId: string;
   patientName: string;
   patientHealthId: string;
+  version: number;
+  supersedesCode: string | null;
   items: PrescriptionItemDraft[];
 }

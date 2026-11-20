@@ -1,13 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Printer, BadgeCheck, BookmarkPlus, Check, FilePlus2, History, LayoutTemplate, Pill, Plus, QrCode, Repeat, Search, Stethoscope, Trash2, UsersRound, X } from "lucide-react";
+import { Printer, BadgeCheck, BookmarkPlus, Check, FilePen, FilePlus2, History, LayoutTemplate, Pill, Plus, QrCode, Repeat, Search, Stethoscope, Trash2, UsersRound, X } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { Badge, Button } from "@/components/ui";
 import { dateLabel, pkr } from "@/lib/domain";
 import { medicineCatalogue } from "@/lib/mock-data";
 import type { DoctorRecentPrescription, DoctorTemplateSummary, PrescriptionItemDraft, RealPatientSummary } from "@/lib/provider/types";
-import { issueRealPrescription } from "@/lib/provider/actions";
+import { amendRealPrescription, issueRealPrescription } from "@/lib/provider/actions";
 import { deleteDoctorTemplateAction, saveDoctorTemplateAction } from "@/lib/provider/template-actions";
 
 export function RealDoctorPanel({
@@ -43,8 +43,15 @@ export function RealDoctorPanel({
   ]);
 
   const [submitting, setSubmitting] = useState(false);
-  const [issuedRx, setIssuedRx] = useState<{ id: string; code: string; token: string } | null>(null);
+  const [issuedRx, setIssuedRx] = useState<{ id: string; code: string; token: string; version?: number; supersedesCode?: string } | null>(null);
   const [error, setError] = useState("");
+
+  // Amendment mode (brief Section 6: editing an issued prescription creates a
+  // new version and cancels the old QR; the old record is kept). When set, the
+  // Issue button submits amendRealPrescription instead of a fresh issue.
+  const [amending, setAmending] = useState<DoctorRecentPrescription | null>(null);
+  const [amendStatus, setAmendStatus] = useState("");
+  const [amendError, setAmendError] = useState("");
 
   // Saved templates (brief 7.2: saved sets of common prescriptions). Props sync
   // after revalidatePath per the D14 convention so saves/deletes refresh the chips.
@@ -106,15 +113,26 @@ export function RealDoctorPanel({
     setError("");
     setSubmitting(true);
     try {
-      const res = await issueRealPrescription({
-        patientId: selectedPatient.id,
-        complaint,
-        diagnosis,
-        consultationCost: Number(consultationCost) || 0,
-        note,
-        items,
-      });
-      setIssuedRx(res);
+      if (amending) {
+        const res = await amendRealPrescription({
+          originalId: amending.id,
+          patientId: selectedPatient.id,
+          consultationCost: Number(consultationCost) || 0,
+          note,
+          items,
+        });
+        setIssuedRx(res);
+      } else {
+        const res = await issueRealPrescription({
+          patientId: selectedPatient.id,
+          complaint,
+          diagnosis,
+          consultationCost: Number(consultationCost) || 0,
+          note,
+          items,
+        });
+        setIssuedRx(res);
+      }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to issue prescription");
     } finally {
@@ -148,10 +166,43 @@ export function RealDoctorPanel({
     setItems(rx.items.map((it) => ({ ...it })));
     if (rx.note) setNote(rx.note);
     if (rx.consultationCost > 0) setConsultationCost(String(rx.consultationCost));
+    setAmending(null);
+    setAmendStatus("");
+    setAmendError("");
     setRepeatError("");
     setRepeatStatus(
       `Repeated ${rx.code} for ${rx.patientName} — ${rx.items.length} medicine${rx.items.length === 1 ? "" : "s"} loaded${switchedPatient ? " (patient switched)" : ""}. Complaint and diagnosis are not stored on the original — update them, then issue.`
     );
+  };
+
+  // ---- Amendments (brief Section 6: new version + cancel the old QR) ----
+
+  const amendable = (rx: DoctorRecentPrescription) =>
+    rx.status === "active" || rx.status === "partly_filled" || rx.status === "expired";
+
+  const applyAmend = (rx: DoctorRecentPrescription) => {
+    if (rx.items.length === 0) {
+      setAmendError(`"${rx.code}" has no medicine lines to carry into an amendment.`);
+      setAmendStatus("");
+      return;
+    }
+    setSelectedPatientId(rx.patientId);
+    setItems(rx.items.map((it) => ({ ...it })));
+    if (rx.note) setNote(rx.note);
+    if (rx.consultationCost > 0) setConsultationCost(String(rx.consultationCost));
+    setAmending(rx);
+    setRepeatError("");
+    setRepeatStatus("");
+    setAmendError("");
+    setAmendStatus(
+      `Amending ${rx.code} (v${rx.version}) for ${rx.patientName} — ${rx.items.length} medicine${rx.items.length === 1 ? "" : "s"} loaded. Issuing will cancel the original QR and issue v${rx.version + 1}; the old record stays in the history. The consultation fee is not re-charged.`
+    );
+  };
+
+  const cancelAmend = () => {
+    setAmending(null);
+    setAmendStatus("");
+    setAmendError("");
   };
 
   const handleSaveTemplate = async () => {
@@ -287,8 +338,13 @@ export function RealDoctorPanel({
                       <div style={{ fontSize: 11, color: "#475569" }}>Verified digital prescription · H.A.R.D (Healthcare Accounting &amp; Record Keeping)</div>
                     </div>
                     <div style={{ textAlign: "right" }}>
-                      <div style={{ fontFamily: "monospace", fontSize: 16, fontWeight: 800, color: "#0f766e" }}>{issuedRx.code}</div>
+                      <div style={{ fontFamily: "monospace", fontSize: 16, fontWeight: 800, color: "#0f766e" }}>
+                        {issuedRx.code}{issuedRx.version && issuedRx.version > 1 ? ` · v${issuedRx.version}` : ""}
+                      </div>
                       <div style={{ fontSize: 10, color: "#64748b" }}>Issued {dateLabel(new Date().toISOString())}</div>
+                      {issuedRx.version && issuedRx.version > 1 && issuedRx.supersedesCode ? (
+                        <div style={{ fontSize: 9, color: "#b45309", marginTop: 2 }}>Supersedes {issuedRx.supersedesCode} (QR cancelled)</div>
+                      ) : null}
                     </div>
                   </div>
                   <div style={{ display: "flex", gap: 24, marginTop: 14, fontSize: 11, color: "#0f172a" }}>
@@ -343,6 +399,11 @@ export function RealDoctorPanel({
                   </div>
                   <h3 className="mt-3 text-sm font-bold text-slate-800">Prescription Issued Successfully</h3>
                   <div className="mt-2 font-mono text-xl font-extrabold text-emerald-800">{issuedRx.code}</div>
+                  {issuedRx.version && issuedRx.version > 1 ? (
+                    <p className="mt-1 text-[11px] font-semibold text-amber-700">
+                      Version {issuedRx.version} — replaces {issuedRx.supersedesCode} (its QR is now cancelled; the old record remains in the history)
+                    </p>
+                  ) : null}
                   <p className="mt-1 text-xs text-slate-600">Issued to {selectedPatient?.fullName} ({selectedPatient?.healthId})</p>
 
                   <div className="qr-frame mx-auto my-4 w-fit">
@@ -353,7 +414,7 @@ export function RealDoctorPanel({
                   </p>
 
                   <div className="mt-5 flex flex-wrap justify-center gap-2">
-                    <Button size="small" onClick={() => setIssuedRx(null)}>
+                    <Button size="small" onClick={() => { setAmending(null); setAmendStatus(""); setAmendError(""); setIssuedRx(null); }}>
                       <FilePlus2 size={12} /> Issue another prescription
                     </Button>
                     <Button size="small" variant="secondary" onClick={() => window.print()}>
@@ -365,6 +426,32 @@ export function RealDoctorPanel({
             ) : (
               <div className="space-y-4">
                 {error && <div className="notice coral">{error}</div>}
+
+                {/* Amendment banner (brief Section 6) — the composer is correcting
+                    an issued prescription; issuing will cancel the old QR. */}
+                {amending && (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-start gap-2">
+                        <FilePen size={15} className="mt-0.5 shrink-0 text-amber-700" />
+                        <div className="text-xs leading-5 text-amber-900">
+                          <strong>Amending {amending.code} (v{amending.version}) for {amending.patientName}.</strong>{" "}
+                          Issuing will cancel the original QR/code and issue <strong>v{amending.version + 1}</strong> — the old record
+                          stays in the history and the consultation fee is not re-charged.
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        className="shrink-0 rounded-lg border border-amber-200 bg-white px-2 py-1 text-[10px] font-semibold text-amber-800 hover:bg-amber-100"
+                        onClick={cancelAmend}
+                      >
+                        Cancel amendment
+                      </button>
+                    </div>
+                    {amendStatus && <div className="notice mt-2">{amendStatus}</div>}
+                    {amendError && <div className="notice coral mt-2">{amendError}</div>}
+                  </div>
+                )}
 
                 {/* Patient Selector */}
                 <div className="field">
@@ -515,12 +602,29 @@ export function RealDoctorPanel({
                             <span className="font-mono font-bold text-slate-800">{rx.code}</span>
                             <span className="text-slate-500"> — {rx.patientName} ({rx.patientHealthId})</span>
                             <div className="text-[10px] text-slate-400">
-                              {dateLabel(rx.issuedAt)} · {rx.items.length} medicine{rx.items.length === 1 ? "" : "s"} · status {rx.status} · {pkr(rx.consultationCost)}
+                              {dateLabel(rx.issuedAt)} · v{rx.version}{rx.supersedesCode ? ` · replaces ${rx.supersedesCode}` : ""} · {rx.items.length} medicine{rx.items.length === 1 ? "" : "s"} · status {rx.status} · {pkr(rx.consultationCost)}
                             </div>
                           </div>
-                          <Button size="small" variant="secondary" onClick={() => applyRepeat(rx)}>
-                            <Repeat size={11} /> Repeat
-                          </Button>
+                          <div className="flex shrink-0 gap-1.5">
+                            <Button
+                              size="small"
+                              variant="secondary"
+                              title={
+                                amendable(rx)
+                                  ? `Amend ${rx.code}: cancel its QR and issue a corrected version`
+                                  : rx.status === "cancelled"
+                                    ? "Already superseded by an amendment — amend the newest version instead"
+                                    : "Already fully dispensed — issue a new prescription instead"
+                              }
+                              disabled={!amendable(rx)}
+                              onClick={() => applyAmend(rx)}
+                            >
+                              <FilePen size={11} /> Amend
+                            </Button>
+                            <Button size="small" variant="secondary" onClick={() => applyRepeat(rx)}>
+                              <Repeat size={11} /> Repeat
+                            </Button>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -567,7 +671,11 @@ export function RealDoctorPanel({
 
                 <div className="flex justify-end pt-3">
                   <Button disabled={submitting || !selectedPatient || items.length === 0} onClick={handleIssue}>
-                    {submitting ? "Issuing…" : "Issue digital prescription (generate QR)"}
+                    {submitting
+                      ? "Issuing…"
+                      : amending
+                        ? `Issue amended prescription v${amending.version + 1} (cancels ${amending.code})`
+                        : "Issue digital prescription (generate QR)"}
                   </Button>
                 </div>
               </div>

@@ -271,6 +271,10 @@ export function RealPatientPortal({
                           <div className="flex items-center gap-2">
                             <span className="font-mono text-xs font-bold text-emerald-800">{rx.code}</span>
                             <Badge type={rx.status === "active" ? "verified" : "neutral"}>{rx.status}</Badge>
+                            {rx.version > 1 && <span className="rounded-full bg-amber-50 px-1.5 py-0.5 text-[9px] font-bold text-amber-700">v{rx.version}</span>}
+                            {rx.status === "cancelled" && rx.supersededByCode && (
+                              <span className="text-[9px] text-slate-400">replaced by {rx.supersededByCode}</span>
+                            )}
                           </div>
                           <div className="mt-1 text-[9px] text-slate-400">{rx.items.length} medicines · {rx.doctor} · Expires {dateLabel(rx.expiresAt)}</div>
                         </div>
@@ -484,9 +488,13 @@ export function RealPatientPortal({
                   <div key={rx.id} className="rounded-xl border border-slate-100 p-4">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                           <span className="font-mono text-sm font-extrabold text-emerald-800">{rx.code}</span>
                           <Badge type={rx.status === "active" ? "verified" : "neutral"}>{rx.status}</Badge>
+                          {rx.version > 1 && <span className="rounded-full bg-amber-50 px-1.5 py-0.5 text-[9px] font-bold text-amber-700">v{rx.version}</span>}
+                          {rx.status === "cancelled" && rx.supersededByCode && (
+                            <span className="text-[9px] text-slate-400">replaced by {rx.supersededByCode}</span>
+                          )}
                         </div>
                         <div className="mt-1 text-[10px] text-slate-500">{rx.doctor} · {rx.provider} · {dateLabel(rx.date)}</div>
                         <div className="mt-0.5 text-[9px] text-slate-400">Expires {dateLabel(rx.expiresAt)} · {Math.max(0, rx.maxFills - rx.fillsUsed)} fill remaining</div>

@@ -97,7 +97,7 @@ export async function listDoctorRecentPrescriptions(
   const { data, error } = await admin
     .from("prescriptions")
     .select(
-      "id, prescription_code, status, issued_at, consultation_cost, note, patient_id, " +
+      "id, prescription_code, status, issued_at, consultation_cost, note, patient_id, version, supersedes_id, " +
         "patients(full_name, health_id), " +
         "prescription_items(medicine, strength, dose, frequency, duration, quantity)"
     )
@@ -119,10 +119,30 @@ export async function listDoctorRecentPrescriptions(
     consultation_cost: unknown;
     note: unknown;
     patient_id: unknown;
+    version: unknown;
+    supersedes_id: unknown;
     patients: { full_name: unknown; health_id: unknown } | null;
     prescription_items: unknown;
   };
   const rows = (data ?? []) as unknown as RxRow[];
+
+  // Brief Section 6: amendments chain versions via supersedes_id — resolve the
+  // superseded codes in one query so the doctor list can show "replaces RX-…".
+  const supersedesIds = rows
+    .map((rx) => (typeof rx.supersedes_id === "string" ? rx.supersedes_id : null))
+    .filter((id): id is string => Boolean(id));
+  const codeById = new Map<string, string>();
+  if (supersedesIds.length > 0) {
+    const { data: supersededRows } = await admin
+      .from("prescriptions")
+      .select("id, prescription_code")
+      .in("id", supersedesIds);
+    ((supersededRows ?? []) as unknown as Array<{ id: unknown; prescription_code: unknown }>).forEach((row) => {
+      if (typeof row.id === "string" && typeof row.prescription_code === "string") {
+        codeById.set(row.id, row.prescription_code);
+      }
+    });
+  }
 
   return rows
     .map((rx) => ({
@@ -135,6 +155,9 @@ export async function listDoctorRecentPrescriptions(
       patientId: typeof rx.patient_id === "string" ? rx.patient_id : "",
       patientName: typeof rx.patients?.full_name === "string" ? rx.patients.full_name : "",
       patientHealthId: typeof rx.patients?.health_id === "string" ? rx.patients.health_id : "",
+      version: Math.max(1, Number(rx.version) || 1),
+      supersedesCode:
+        typeof rx.supersedes_id === "string" ? codeById.get(rx.supersedes_id) ?? null : null,
       items: normalizeTemplateItems(rx.prescription_items),
     }))
     .filter((rx) => rx.id && rx.code && rx.patientId);

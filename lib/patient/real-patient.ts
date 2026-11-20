@@ -1,6 +1,7 @@
 import { createSupabaseAdminClient } from "@/lib/supabase/server";
 import type { RealPatientRecord, RealPatientPortalData, RealCostItem, RealPrescription, RealLabReport, RealInvoice, RealAccessLog } from "@/lib/patient/types";
 import { readPlatformConfig } from "@/lib/admin/config";
+import { insertPatientWithUniqueHealthId, type PatientRow } from "@/lib/patient/health-id";
 
 export type { RealPatientRecord, RealPatientPortalData, RealCostItem, RealPrescription, RealLabReport, RealInvoice, RealAccessLog } from "@/lib/patient/types";
 
@@ -37,6 +38,23 @@ export async function getPatientStorage(patientId: string): Promise<{ usedMb: nu
   return { usedMb, quotaMb: Math.max(1, Math.round(config.base_plan_quota_mb)) };
 }
 
+function toRealPatientRecord(row: PatientRow): RealPatientRecord {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    healthId: row.health_id,
+    fullName: row.full_name,
+    dob: row.date_of_birth,
+    gender: row.gender,
+    bloodGroup: row.blood_group,
+    storagePlan: "Base",
+    storageUsedMb: 0,
+    storageQuotaMb: 1024,
+  };
+  // (real storage values are filled in getRealPatientPortalData, which knows
+  // the config table and the patient's ingestion history)
+}
+
 export async function ensurePatientRecord(userId: string, displayName?: string): Promise<RealPatientRecord> {
   const admin = createSupabaseAdminClient();
   const { data: existing } = await admin
@@ -46,83 +64,36 @@ export async function ensurePatientRecord(userId: string, displayName?: string):
     .maybeSingle();
 
   if (existing) {
-    return {
-      id: existing.id,
-      userId: existing.user_id,
-      healthId: existing.health_id,
-      fullName: existing.full_name,
-      dob: existing.date_of_birth,
-      gender: existing.gender,
-      bloodGroup: existing.blood_group,
-      storagePlan: "Base",
-      storageUsedMb: 0,
-      storageQuotaMb: 1024,
-    };
+    return toRealPatientRecord(existing as unknown as PatientRow);
   }
-  // (real storage values are filled in getRealPatientPortalData, which knows
-  // the config table and the patient's ingestion history)
 
-  // Generate next Health ID from the highest existing serial. count(*)-based
-  // numbering breaks when patient rows are deleted (uniqueness is on health_id);
-  // max(health_id) stays monotonic. Retry on a health_id race with the next serial.
-  const { data: lastByHealthId } = await admin
-    .from("patients")
-    .select("health_id")
-    .order("health_id", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  const lastSerial = Number.parseInt((lastByHealthId?.health_id ?? "").replace(/\D/g, ""), 10);
-  let serial = (Number.isFinite(lastSerial) && lastSerial >= 100 ? lastSerial : 100) + 1;
   const fullName = displayName && displayName !== "H.A.R.D user" ? displayName : "H.A.R.D Patient";
+  const outcome = await insertPatientWithUniqueHealthId(admin, {
+    user_id: userId,
+    full_name: fullName,
+    blood_group: "O+",
+  });
 
-  let inserted: Awaited<ReturnType<typeof fetchExisting>>["data"] = null;
-  let insertError: string | null = null;
-  const attemptInsert = () =>
-    admin
+  if (outcome.ok) {
+    return toRealPatientRecord(outcome.row);
+  }
+
+  // D20: a concurrent request for the SAME user may have won the insert while
+  // we were generating a Health ID (patients_user_id_key violation — e.g. two
+  // tabs mounting the portal at once). The winner's row is exactly what this
+  // function promises, so re-select by user_id before giving up.
+  if (outcome.error.code === "23505") {
+    const { data: raced } = await admin
       .from("patients")
-      .insert({
-        user_id: userId,
-        health_id: `HARD-${String(serial).padStart(6, "0")}`,
-        full_name: fullName,
-        blood_group: "O+",
-      })
-      .select()
-      .single();
-
-  const fetchExisting = () =>
-    admin.from("patients").select("*").eq("user_id", userId).maybeSingle();
-
-  let attempt = await attemptInsert();
-  for (let i = 0; i < 3; i++) {
-    if (attempt.data) {
-      inserted = attempt.data;
-      break;
+      .select("*")
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (raced) {
+      return toRealPatientRecord(raced as unknown as PatientRow);
     }
-    if (attempt.error?.code === "23505" && /health_id/i.test(attempt.error.message ?? "")) {
-      serial += 1; // serial raced with another signup — take the next one
-      attempt = await attemptInsert();
-      continue;
-    }
-    insertError = attempt.error?.message ?? "insert failed";
-    break;
   }
 
-  if (!inserted) {
-    throw new Error(`Could not ensure patient profile: ${insertError}`);
-  }
-
-  return {
-    id: inserted.id,
-    userId: inserted.user_id,
-    healthId: inserted.health_id,
-    fullName: inserted.full_name,
-    dob: inserted.date_of_birth,
-    gender: inserted.gender,
-    bloodGroup: inserted.blood_group,
-    storagePlan: "Base",
-    storageUsedMb: 0,
-    storageQuotaMb: 1024,
-  };
+  throw new Error(`Could not ensure patient profile: ${outcome.error.message}`);
 }
 
 export async function getRealPatientPortalData(userId: string): Promise<RealPatientPortalData> {
@@ -164,27 +135,49 @@ export async function getRealPatientPortalData(userId: string): Promise<RealPati
     paymentStatus: item.payment_status,
   }));
 
-  const mappedPrescriptions: RealPrescription[] = (prescriptions ?? []).map((rx) => ({
-    id: rx.id,
-    code: rx.prescription_code,
-    doctor: "Dr. Treating Physician",
-    provider: "Linked Provider",
-    status: rx.status,
-    date: rx.issued_at,
-    expiresAt: rx.expires_at,
-    maxFills: rx.max_fills,
-    fillsUsed: rx.fills_used,
-    consultationCost: Number(rx.consultation_cost),
-    items: ((rx.prescription_items as Array<Record<string, unknown>>) ?? []).map((item) => ({
-      id: String(item.id),
-      medicine: String(item.medicine),
-      strength: String(item.strength ?? ""),
-      dose: String(item.dose ?? ""),
-      frequency: String(item.frequency ?? ""),
-      duration: String(item.duration ?? ""),
-      quantity: Number(item.quantity ?? 1),
-    })),
-  }));
+  const mappedPrescriptions: RealPrescription[] = (() => {
+    // Brief Section 6: amendments supersede an earlier prescription — map each
+    // row's supersedes_id to that row's code (the superseded prescription
+    // belongs to the same patient, so it is already in this result set), and
+    // the reverse (superseded_id → superseding code) so a cancelled row can
+    // show "replaced by RX-…".
+    const rxRows = (prescriptions ?? []) as Array<Record<string, unknown>>;
+    const codeById = new Map<string, string>();
+    const supersederOf = new Map<string, string>();
+    rxRows.forEach((row) => {
+      if (typeof row.id === "string" && typeof row.prescription_code === "string") {
+        codeById.set(row.id, row.prescription_code);
+        if (typeof row.supersedes_id === "string") {
+          supersederOf.set(row.supersedes_id, row.prescription_code);
+        }
+      }
+    });
+    return rxRows.map((rx) => ({
+      id: String(rx.id),
+      code: String(rx.prescription_code),
+      doctor: "Dr. Treating Physician",
+      provider: "Linked Provider",
+      status: rx.status as RealPrescription["status"],
+      date: rx.issued_at as string,
+      expiresAt: rx.expires_at as string,
+      maxFills: Number(rx.max_fills),
+      fillsUsed: Number(rx.fills_used),
+      consultationCost: Number(rx.consultation_cost),
+      version: Math.max(1, Number(rx.version) || 1),
+      supersedesCode:
+        typeof rx.supersedes_id === "string" ? codeById.get(rx.supersedes_id) ?? null : null,
+      supersededByCode: typeof rx.id === "string" ? supersederOf.get(rx.id) ?? null : null,
+      items: ((rx.prescription_items as Array<Record<string, unknown>>) ?? []).map((item) => ({
+        id: String(item.id),
+        medicine: String(item.medicine),
+        strength: String(item.strength ?? ""),
+        dose: String(item.dose ?? ""),
+        frequency: String(item.frequency ?? ""),
+        duration: String(item.duration ?? ""),
+        quantity: Number(item.quantity ?? 1),
+      })),
+    }));
+  })();
 
   const mappedReports: RealLabReport[] = (labReports ?? []).map((rep) => ({
     id: rep.id,

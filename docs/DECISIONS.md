@@ -303,3 +303,46 @@ producing ledger changes without an audit row when the live CHECK did not yet kn
 `payout_update`. The action now ROLLS BACK the status change when the audit write fails and
 raises a migration-hint error — state and audit trail can never diverge. Rule for new mutations:
 check the audit insert result; on failure, undo the mutation and surface the error.
+
+## D25 — Health-ID generation: one shared helper, fresh max-read per retry, same-user re-select (2026-11-20, Session 11)
+
+The owner's reported crash (`patients_health_id_key` duplicate when an admin switches to the
+patient workspace) came from a build still running the pre-D16 count-based serial. D16's fix
+(max+1 with `serial += 1` retries) had two remaining holes, now closed in
+`lib/patient/health-id.ts` and used by BOTH patient-creation paths (self-signup `ensurePatientRecord`
+and desk `registerRealPatient`, which previously duplicated the logic):
+
+1. Every retry re-reads `max(health_id)` FRESH — the request that won our serial has committed by
+   the time our insert failed, so the next max read is strictly higher. Bumping the local serial
+   without re-reading could walk into a contiguous run of taken serials.
+2. A unique violation on a column OTHER than health_id (CNIC, `patients_user_id_key`) is returned
+   immediately — retrying a deterministic violation is pointless; the caller handles it (friendly
+   CNIC message, or `ensurePatientRecord`'s same-user re-select).
+3. Same-user race (two tabs mounting /patient/overview): after any 23505, re-select by `user_id`
+   and return the winner's row — that row IS what the function promises. Covers React strict-mode
+   double renders without ever surfacing an error.
+
+Five attempts, then a clear throw. Invariant unchanged from D16: health_id stays zero-padded
+6-digit so lexicographic max = numeric max. Pinned by `lib/patient/health-id.test.ts` (7 cases
+including the owner's exact scenario and both race shapes).
+
+## D26 — Amendments without a migration: version chain in the existing schema, 'write' audits, Rule-6 gate at every resolve path (2026-11-20, Session 11)
+
+Brief Section 6/20 ("amending cancels the old QR and issues a new version; the old record is
+kept") was the last open acceptance item. Design:
+
+- NO new migration: `prescriptions` already had `version`/`supersedes_id`/`cancelled`, and the
+  amendment is audited with the existing `write` event type + `metadata.action =
+  'prescription_amended'` (matching `issueRealPrescription`), so the owner has zero SQL to run.
+- `amendRealPrescription` cancels the original (UPDATE, never DELETE — Rule 3), inserts v+1 with
+  a fresh code/token/short validity from config, and does NOT create a second consultation cost
+  item (an amendment corrects the record; the visit was already billed). Amendable statuses:
+  active/partly_filled/expired; cancelled (already superseded) and dispensed are refused with
+  actionable messages.
+- "Cancels the old QR" is enforced at EVERY resolve path: the `resolve_prescription` RPC already
+  returned bare statuses for non-active prescriptions, but the public `/api/rx/resolve` returned
+  full medicines for any status AND had a latent lookup bug (`.or(code,id)` → PostgREST uuid-cast
+  error → every typed code 404'd; only QR-uuid lookups worked). The route now does a uuid-aware
+  lookup, returns status-only for cancelled/expired/dispensed (Rule 6), rate-limits 20/min per IP
+  (in-memory, single-instance prototype), and writes a `pharmacy_resolve` audit row per lookup so
+  resolves appear in the patient's access log.

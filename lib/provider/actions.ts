@@ -4,6 +4,7 @@ import { createSupabaseAdminClient, createSupabaseServerClient } from "@/lib/sup
 import { revalidatePath } from "next/cache";
 import crypto from "node:crypto";
 import { readPlatformConfig } from "@/lib/admin/config";
+import { insertPatientWithUniqueHealthId } from "@/lib/patient/health-id";
 
 /**
  * Resolve the caller's provider organization from their ACTIVE staff role
@@ -96,68 +97,36 @@ export async function registerRealPatient(input: {
     );
   }
 
-  // Next Health ID from the highest existing serial. A count(*)-based serial
-  // breaks as soon as any patient row is deleted (uniqueness is on health_id,
-  // not row count); max(health_id) is monotonic regardless of deletions.
-  const { data: lastByHealthId } = await admin
-    .from("patients")
-    .select("health_id")
-    .order("health_id", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  const lastSerial = Number.parseInt((lastByHealthId?.health_id ?? "").replace(/\D/g, ""), 10);
-  let serial = (Number.isFinite(lastSerial) && lastSerial >= 100 ? lastSerial : 100) + 1;
+  // 1. Insert patient. D16/D20: Health ID from max(health_id) with a fresh
+  // re-read on every retry — never count(*), which collides with an existing
+  // health_id as soon as any patient row has been deleted.
+  const outcome = await insertPatientWithUniqueHealthId(admin, {
+    full_name: input.fullName.trim(),
+    cnic: cnicDigits,
+    date_of_birth: input.dob ? input.dob : null,
+    gender: input.gender || null,
+    blood_group: input.bloodGroup || "O+",
+    created_by: user.id,
+  });
 
-  // 1. Insert patient (retry on a health_id race: another desk grabbed the same serial)
-  const insert = () =>
-    admin
-      .from("patients")
-      .insert({
-        health_id: `HARD-${String(serial).padStart(6, "0")}`,
-        full_name: input.fullName.trim(),
-        cnic: cnicDigits,
-        date_of_birth: input.dob ? input.dob : null,
-        gender: input.gender || null,
-        blood_group: input.bloodGroup || "O+",
-        created_by: user.id,
-      })
-      .select()
-      .single();
-
-  type InsertResult = Awaited<ReturnType<typeof insert>>;
-  let result: InsertResult = await insert();
-  let newPatient: InsertResult["data"] = null;
-  let insertError: string | null = null;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    if (result.data) {
-      newPatient = result.data;
-      break;
-    }
-    if (result.error?.code === "23505" && /health_id/i.test(result.error.message ?? "")) {
-      serial += 1; // serial taken between our max-read and the insert — take the next one
-      result = await insert();
-      continue;
-    }
-    insertError = result.error?.message ?? "insert failed";
-    break;
-  }
-  const pError = newPatient ? null : { code: result.error?.code ?? "", message: insertError ?? "insert failed" };
-  const healthId = newPatient?.health_id ?? "";
-  const receiptNo = `HARD-R-${String(serial).padStart(5, "0")}`;
-
-  if (pError || !newPatient) {
+  if (!outcome.ok) {
+    const pError = outcome.error;
     // Unique-violation (23505) = a concurrent desk registered the same CNIC between
     // our pre-check and the insert — the DB index is the source of truth.
-    if (pError?.code === "23505" && /cnic/i.test(pError?.message ?? "")) {
+    if (pError.code === "23505" && /cnic/i.test(pError.message)) {
       throw new Error("This CNIC was just registered by another desk. Reload the directory and search by CNIC.");
     }
-    if (/cnic/i.test(pError?.message ?? "") && /could not find|does not exist/i.test(pError?.message ?? "")) {
+    if (/cnic/i.test(pError.message) && /could not find|does not exist/i.test(pError.message)) {
       throw new Error(
         "Could not register patient: the patients table is missing the cnic column — apply migration 20261119100000_cnic_unique_atomic_status.sql in the Supabase SQL editor."
       );
     }
-    throw new Error(`Could not register patient: ${pError?.message}`);
+    throw new Error(`Could not register patient: ${pError.message}`);
   }
+  const newPatient = outcome.row;
+  const serial = Number.parseInt(newPatient.health_id.replace(/\D/g, ""), 10);
+  const healthId = newPatient.health_id;
+  const receiptNo = `HARD-R-${String(serial).padStart(5, "0")}`;
 
   // 2. Insert registration invoice (brief 22: registration_fee from config, default PKR 500)
   const { data: invoice } = await admin
@@ -326,6 +295,151 @@ export async function issueRealPrescription(input: {
     id: rx.id,
     code: prescriptionCode,
     token: rawToken,
+  };
+}
+
+/**
+ * P2-13 (brief Section 6 / acceptance criteria): amending an issued
+ * prescription cancels the old QR and issues a NEW VERSION; the old record is
+ * kept (Rule 3 — issued records are never deleted). The new row carries
+ * version = old.version + 1 and supersedes_id = old.id; the old row flips to
+ * status 'cancelled', after which the pharmacy resolve paths (the
+ * resolve_prescription RPC and /api/rx/resolve) return a clear status with no
+ * medicine details (Rule 6). The consultation fee is NOT re-charged — the
+ * amendment corrects the record, it is not a new visit.
+ */
+export async function amendRealPrescription(input: {
+  originalId: string;
+  patientId: string;
+  consultationCost?: number;
+  note?: string;
+  items: Array<{
+    medicine: string;
+    strength?: string;
+    dose?: string;
+    frequency?: string;
+    duration?: string;
+    quantity: number;
+  }>;
+}) {
+  const supabase = await createSupabaseServerClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error("Unauthorized");
+
+  const admin = createSupabaseAdminClient();
+  const providerId = await requireActiveProviderId(admin, user.id, "doctor");
+
+  // Load the prescription being amended.
+  const { data: original, error: originalError } = await admin
+    .from("prescriptions")
+    .select("id, patient_id, status, version, prescription_code")
+    .eq("id", input.originalId)
+    .single();
+
+  if (originalError || !original) {
+    throw new Error("The prescription you are amending could not be found. Reload the workspace and try again.");
+  }
+  if (original.patient_id !== input.patientId) {
+    throw new Error("This prescription belongs to a different patient. Select the patient it was issued to.");
+  }
+  if (original.status === "cancelled") {
+    throw new Error(`${original.prescription_code} is already cancelled — it was superseded by an amendment. Amend the newest version instead.`);
+  }
+  if (original.status === "dispensed") {
+    throw new Error(`${original.prescription_code} has already been fully dispensed and cannot be amended. Issue a new prescription instead.`);
+  }
+  if (!input.items || input.items.length === 0) {
+    throw new Error("An amendment needs at least one medicine line.");
+  }
+
+  // Brief Rule 1: validity and fills come from the config table (brief 22).
+  const config = await readPlatformConfig();
+  const validDays = Math.min(365, Math.max(1, Math.round(config.prescription_valid_days)));
+  const maxFills = Math.min(20, Math.max(1, Math.round(config.prescription_max_fills)));
+  const randomSuffix = Math.random().toString(36).slice(2, 6).toUpperCase();
+  const randomSuffix2 = Math.random().toString(36).slice(2, 6).toUpperCase();
+  const prescriptionCode = `RX-${randomSuffix}-${randomSuffix2}`;
+  const rawToken = crypto.randomBytes(16).toString("hex");
+  const tokenDigest = crypto.createHash("sha256").update(rawToken).digest();
+  const newVersion = (original.version ?? 1) + 1;
+
+  // 1. Cancel the original — its QR/code dies immediately (resolve paths return
+  // a clear 'cancelled' status with no medicines); the row itself is kept.
+  const { error: cancelError } = await admin
+    .from("prescriptions")
+    .update({ status: "cancelled" })
+    .eq("id", original.id);
+  if (cancelError) {
+    throw new Error(`Could not cancel the original prescription: ${cancelError.message}`);
+  }
+
+  // 2. Insert the new version, linked back to the original.
+  const { data: rx, error: rxError } = await admin
+    .from("prescriptions")
+    .insert({
+      patient_id: input.patientId,
+      provider_id: providerId,
+      doctor_user_id: user.id,
+      prescription_code: prescriptionCode,
+      token_digest: tokenDigest,
+      consultation_cost: input.consultationCost || 0,
+      note: input.note || null,
+      status: "active",
+      max_fills: maxFills,
+      fills_used: 0,
+      expires_at: new Date(Date.now() + validDays * 86400000).toISOString(),
+      version: newVersion,
+      supersedes_id: original.id,
+    })
+    .select()
+    .single();
+
+  if (rxError || !rx) {
+    throw new Error(`Could not issue the amended prescription: ${rxError?.message}`);
+  }
+
+  // 3. Insert the amended items.
+  const itemRows = input.items.map((it) => ({
+    prescription_id: rx.id,
+    medicine: it.medicine,
+    strength: it.strength || "",
+    dose: it.dose || "",
+    frequency: it.frequency || "",
+    duration: it.duration || "",
+    quantity: Math.max(1, it.quantity || 1),
+  }));
+  await admin.from("prescription_items").insert(itemRows);
+
+  // 4. Audit the amendment (event_type 'write', matching issueRealPrescription;
+  //    the amendment details live in metadata so no new CHECK value is needed).
+  await admin.from("audit_events").insert({
+    actor_user_id: user.id,
+    patient_id: input.patientId,
+    provider_id: providerId,
+    event_type: "write",
+    resource_type: "prescription",
+    resource_id: rx.id,
+    metadata: {
+      action: "prescription_amended",
+      original_code: original.prescription_code,
+      new_code: prescriptionCode,
+      version: newVersion,
+      items_count: input.items.length,
+    },
+  });
+
+  revalidatePath("/doctor/prescriptions");
+  revalidatePath("/doctor/prescriptions/new");
+  revalidatePath("/doctor/overview");
+  revalidatePath("/patient/prescriptions");
+  revalidatePath("/patient/overview");
+
+  return {
+    id: rx.id,
+    code: prescriptionCode,
+    token: rawToken,
+    version: newVersion,
+    supersedesCode: original.prescription_code as string,
   };
 }
 

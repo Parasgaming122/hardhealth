@@ -63,6 +63,13 @@ Rule 1) edited at `/admin/config` by a platform admin; every change is audited. 
 `20261121000000_platform_config.sql` is applied (SQL editor or auto-setup), all consumers fall
 back to the brief-22 defaults.
 
+Prescriptions support the full version chain from the brief: a doctor can amend an issued
+prescription from the doctor panel, which cancels the original QR/code (pharmacy resolves then
+return only a `cancelled` status, never the medicines) and issues a new version linked to the
+old record, which stays in the patient's history. Patient rows are auto-provisioned on first
+visit to the patient workspace with a collision-proof Health ID (`max(health_id)+1` with
+conflict retries — never `count(*)`).
+
 ## Tests and build
 
 - `pnpm typecheck` — TypeScript static check.

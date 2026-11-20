@@ -46,6 +46,9 @@ export interface RealPrescription {
   maxFills: number;
   fillsUsed: number;
   consultationCost: number;
+  version: number;
+  supersedesCode: string | null;
+  supersededByCode: string | null;
   items: RealPrescriptionItem[];
 }
 

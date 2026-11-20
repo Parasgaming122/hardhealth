@@ -9,7 +9,42 @@ Legend: [done] completed · [wip] in progress · [todo] not started · [blocked]
 Full inventory of roles/pages/components/APIs vs `HARD_Developer_Brief_v2.md`, documented in
 `task.md` (repo root). Quality gate at end of Phase 1: `tsc --noEmit` 0 errors, vitest 17/17.
 
-## Phase 2 — Fix Critical/High gaps — IN PROGRESS
+## Session 11 (2026-11-20) — Final hardening: health-id crash + amendments — the last gaps
+
+- [done] **Health-ID duplicate crash fixed and hardened (D16→D20)**: the owner hit
+  `duplicate key value violates unique constraint "patients_health_id_key"` when switching to
+  the patient workspace in the admin account — that build still ran the pre-Session-6
+  count-based serial (`count+101` collided with baseline HARD-000102 on EVERY new patient).
+  Both patient-creation paths now share `lib/patient/health-id.ts`
+  (`insertPatientWithUniqueHealthId`): max(health_id) re-read FRESH on every retry (5 attempts),
+  unique violations on other columns returned immediately, and `ensurePatientRecord`
+  re-selects by user_id on a same-user race (two tabs). 7 new unit tests pin the behavior
+  (fast path, owner's exact scenario, serial race, same-user race, non-retryable, exhaustion,
+  empty table). Live: admin→patient switch provisions HARD-000103, portal renders, reload
+  stable (verify_s11 A1-A5).
+- [done] **P2-13 Prescription amendments (brief Section 6 + acceptance criteria) — CLOSED**:
+  `amendRealPrescription` cancels the original (row kept — Rule 3), issues v+1 with
+  `supersedes_id`, new code/QR/validity from config, amended items, audited
+  (`write`/`prescription` + `prescription_amended` metadata — no new CHECK value, no migration
+  needed), and does NOT re-charge the consultation fee. Doctor UI: Amend button on recent
+  prescriptions (gated: cancelled/dispensed cannot be amended), amber amendment banner,
+  issue-button switch, issued screen + print sheet show the version chain. Patient portal:
+  v-chip + "replaced by RX-…" on the cancelled original. 6 new unit tests + live B2-D2.
+- [done] **Pharmacy resolve API hardened (Rule 6 + latent bug)**: `/api/rx/resolve` previously
+  returned full medicines for ANY status and its `.or(code,id)` filter 404'd every typed code
+  (PostgREST uuid-cast bug — only QR-uuid lookups worked). Now: uuid-aware lookup, clear status
+  only (no medicines/patient) for cancelled/expired/dispensed, in-memory 20/min-per-IP rate
+  limit, and every resolve audited (`pharmacy_resolve`, visible in the patient's access log).
+  Live C1-C3: cancelled code → bare status; new code → medicines; resolves audited.
+- [done] **P2-8 note**: the owner applied `20261121000000_platform_config.sql` — the config
+  table is LIVE with all 13 brief-22 defaults (probed); `/admin/config` renders real values
+  (E1). The pre-migration degrade paths remain as dead-safe code.
+- [done] Verification: `tsc --noEmit` 0 errors · vitest 51 passed (+4 real-Postgres e2e with the
+  embedded cluster, 7 migrations on a fresh DB) · `npm run build` success · live final run
+  `scripts/verify_s11_final.mjs` **23/23** · DB baseline restored exactly (4 orgs / 1 patient
+  HARD-000102 / 2 users / 0 rx / 0 costs / 0 templates).
+
+## Phase 2 — Fix Critical/High gaps — COMPLETE (Sessions 2-11)
 
 ### Part 1 — Provider status exploration (previous session, interrupted)
 - [done] DB discovery: provider_organizations columns, status CHECK (no 'suspended'), available
@@ -108,10 +143,11 @@ Full inventory of roles/pages/components/APIs vs `HARD_Developer_Brief_v2.md`, d
   (`role_assignment` activate/deactivate), self-deactivation blocked, last-active provider admin
   protected. Provider lifecycle (suspend/reinstate) was already live from Session 5. Verified
   live C6-C10.
-- [todo] **P2-12** Owner action (optional): add `DATABASE_URL` (Supabase Session pooler, port
+- [done] **P2-12** Owner action (optional): add `DATABASE_URL` (Supabase Session pooler, port
   5432) to the environment to switch on auto-setup for future migrations; `/setup` guides it.
-  NOTE (Session 10): adding it would ALSO auto-apply the pending 20261121000000 config migration —
-  the alternative is pasting that one file into the Supabase SQL editor.
+  UPDATE (Session 11): the config migration 20261121000000 is now APPLIED (owner ran it in the
+  SQL editor — table probed live with all 13 defaults), so nothing is pending; `DATABASE_URL`
+  remains optional future-proofing only.
 
 ## Phase 3 — Acceptance-criteria validation — COMPLETE (Session 10)
 - [done] Walked brief Section 20 criteria against the running app; the Session 10 acceptance run
@@ -125,9 +161,10 @@ Full inventory of roles/pages/components/APIs vs `HARD_Developer_Brief_v2.md`, d
   invoice or the provider-side ledger entry, so the provider admin's earnings ledger could never
   find its rows (brief Rule 4). The collecting desk's ACTIVE front_desk org is now resolved and
   stamped on both (its absence is a friendly error).
-- [open acceptance item, out of prototype scope] Amending an issued prescription into a new
-  version (schema supports version/supersedes_id/cancelled) — the brief lists amendments in
-  Section 6; it was never in the Phase 2 backlog. Documented as the one remaining "should have".
+- [closed in Session 11] Amending an issued prescription into a new version (schema supports
+  version/supersedes_id/cancelled) — implemented as P2-13 above; the last open acceptance
+  criterion from the brief is now green (live B2-D2: old QR cancelled + bare status at the
+  pharmacy, v2 active, old record kept, fee not re-charged, audited).
 
 ## Phase 4 — Polish — COMPLETE (Session 10)
 - [done] `manus-routes.json` synced (/setup added; 50 routes), README updated (auto DB setup +
