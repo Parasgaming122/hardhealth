@@ -11,7 +11,7 @@ const initialState: SignupActionState = { error: null, success: null };
 export function SecureSignupForm({ oauthError = false }: { oauthError?: boolean }) {
   const [state, formAction, pending] = useActionState(signUpAction, initialState);
   return <div className="space-y-5">
-    {oauthError && <p role="alert" className="secure-error">Google sign-in is not ready for this site. Check the Google provider and redirect allowlist in Supabase Auth.</p>}
+    {oauthError && <p role="alert" className="secure-error">Google sign-in is not ready for this site. Ask the administrator to add this site's URL to Supabase Auth → URL Configuration → Redirect URLs and to check the Google provider.</p>}
     <form action={formAction} className="space-y-4">
       <label className="secure-field"><span>Full name</span><input type="text" name="full_name" required minLength={2} maxLength={100} autoComplete="name" /></label>
       <label className="secure-field"><span>Email</span><input type="email" name="email" required maxLength={254} autoComplete="email" inputMode="email" /></label>

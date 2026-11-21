@@ -4,6 +4,35 @@ Legend: [done] completed · [wip] in progress · [todo] not started · [blocked]
 
 ---
 
+## Session 13 (2026-11-21) — Deployed-site auth: origin gate + OAuth redirects fixed
+
+Owner deployed the app and both auth entry points failed on the deployed origin (Google button
+→ "not ready for this site"; signup → "site origin is not configured"), while both worked on
+localhost before.
+
+- [done] **Root cause**: `lib/auth/trusted-origin.ts` only trusted the hard-coded Vercel
+  production origin + `NEXT_PUBLIC_SITE_URL`/`VERCEL_URL`/`VERCEL_BRANCH_URL` + localhost(dev).
+  The deployed origin matched none → `signUpAction` rejected and `googleSignInAction` bounced
+  to `?error=google`. Both error strings come from the app itself, not Supabase.
+- [done] **Fix**: the server now derives the origin each request actually arrived on
+  (`requestAppOriginCandidatesFromHeaders`: `x-forwarded-host`/`x-forwarded-proto`, first hop
+  only, `host` fallback, dual-protocol only when no proxy set the proto, fail-closed on
+  malformed) and accepts the browser-submitted origin on an exact match. Any deployment host
+  now works with zero env changes; spoofed origins still rejected (7-case unit suite: match,
+  mismatch, spoof, comma hops, malformed, path smuggling, direct-connection).
+- [done] **Messages + docs**: Google alert now names the exact dashboard location (Auth → URL
+  Configuration → Redirect URLs); README got a 4-step deployment checklist replacing the
+  stale Vercel-only Site URL paragraph; `.env.example` explains `NEXT_PUBLIC_SITE_URL` is now
+  optional.
+- [done] Verification: `tsc` 0 · vitest **91 passed** · `npm run build` success ·
+  production-mode live run (`scripts/verify_s13_deploy_auth.mjs`) **8/8** — signup passes the
+  origin gate and Google redirects to `<supabase>/auth/v1/authorize?provider=google&
+  redirect_to=<browser-origin>/auth/callback` with the origin in NO allowlist.
+- [blocked] **Supabase dashboard (owner, 2 minutes)**: Authentication → URL Configuration →
+  Site URL = deployed URL, Redirect URLs += `https://<deployed-host>/**` (Supabase itself
+  rejects redirects outside this list — the app cannot fix that side). Then redeploy +
+  hard-refresh. Google provider keys are unchanged by redeployment.
+
 ## Phase 1 — Audit & gap analysis — COMPLETE
 
 Full inventory of roles/pages/components/APIs vs `HARD_Developer_Brief_v2.md`, documented in

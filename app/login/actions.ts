@@ -1,10 +1,16 @@
 "use server";
 
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { homePathForRoles, type WorkspacePayload } from "@/lib/auth/roles";
 import { validateSignupInput } from "@/lib/auth/signup-validation";
-import { trustedAppOriginFrom } from "@/lib/auth/trusted-origin";
+import { requestAppOriginCandidatesFromHeaders, trustedAppOriginFrom } from "@/lib/auth/trusted-origin";
+
+async function currentRequestOrigins(): Promise<string[]> {
+  const headerBag = await headers();
+  return requestAppOriginCandidatesFromHeaders((name) => headerBag.get(name));
+}
 
 export type LoginActionState = { error: string | null };
 export type SignupActionState = { error: string | null; success: string | null };
@@ -34,7 +40,7 @@ export async function signUpAction(_previous: SignupActionState, formData: FormD
   });
   if (!validation.ok) return { error: validation.error, success: null };
 
-  const origin = trustedAppOriginFrom(String(formData.get("origin") ?? ""));
+  const origin = trustedAppOriginFrom(String(formData.get("origin") ?? ""), await currentRequestOrigins());
   if (!origin) return { error: "This site origin is not configured for secure account confirmation. Open the approved H.A.R.D site or ask the administrator to configure its public URL.", success: null };
 
   let supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
@@ -70,7 +76,7 @@ export async function signUpAction(_previous: SignupActionState, formData: FormD
 
 export async function googleSignInAction(formData: FormData): Promise<void> {
   const source = formData.get("source") === "signup" ? "/signup" : "/login";
-  const origin = trustedAppOriginFrom(String(formData.get("origin") ?? ""));
+  const origin = trustedAppOriginFrom(String(formData.get("origin") ?? ""), await currentRequestOrigins());
   if (!origin) redirect(`${source}?error=google`);
 
   try {

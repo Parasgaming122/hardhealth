@@ -95,6 +95,69 @@ email field), and asked for validated fields plus desk-registration → signup l
 
 ---
 
+## 2026-11-21 — Session 13: deployed-site auth fix (Google OAuth + signup origin rejection)
+
+**Context**: after deploying, the owner reported two auth failures on the deployed site:
+1. Google button → "Google sign-in is not ready for this site. Check the Google provider and
+   redirect allowlist in Supabase Auth." (worked before on localhost)
+2. Account creation → "This site origin is not configured for secure account confirmation.
+   Open the approved H.A.R.D site or ask the administrator to configure its public URL."
+
+### Root cause
+
+Both messages are produced by the app's OWN origin gate, not by Supabase:
+`lib/auth/trusted-origin.ts` trusted only `https://hard-health-records.vercel.app`,
+`NEXT_PUBLIC_SITE_URL`, `VERCEL_URL`, `VERCEL_BRANCH_URL` (+ localhost in dev). The deployed
+origin matched none of these, so `signUpAction` line 38 rejected signup and
+`googleSignInAction` bounced to `?error=google`. (Supabase's Redirect-URLs allowlist is a
+SECOND, independent gate that must also include the deployed URL — that part is dashboard
+config; steps documented in README and below.)
+
+### Changes
+
+1. `lib/auth/trusted-origin.ts` — NEW `requestAppOriginCandidatesFromHeaders()`: derives the
+   origin(s) the request provably arrived on from `x-forwarded-host`/`x-forwarded-proto`
+   (first hop only; `host` fallback; both protocols tried only when no proxy set the proto —
+   exact-match still required, fails closed on malformed input).
+   `trustedAppOriginFrom(value, requestOrigins?)` now accepts an origin that exactly matches
+   the request's own origin — redirecting back to the site the visitor is already on is
+   inherently safe, and it makes ANY deployment host (custom domain, new Vercel project,
+   non-Vercel PaaS) work with zero env changes. The env-var allowlist path is unchanged;
+   Supabase's own allowlist remains the outer gate.
+2. `app/login/actions.ts` — both `signUpAction` and `googleSignInAction` pass the
+   server-derived request origins into the gate.
+3. `components/secure-signup-form.tsx` + `app/login/page.tsx` — the Google alert now names
+   the exact fix location: "add this site's URL to Supabase Auth → URL Configuration →
+   Redirect URLs and check the Google provider".
+4. `README.md` — replaced the stale "configure Site URL to the Vercel domain only" paragraph
+   with a 4-step deployment checklist (Site URL, `https://<host>/**` Redirect URLs, Google
+   provider, redeploy + hard refresh). `.env.example` — `NEXT_PUBLIC_SITE_URL` marked
+   optional with the automatic request-origin behavior explained.
+
+### Verification (all green)
+
+- `npx tsc --noEmit` 0 errors · `npx vitest run` **91 passed** (4 e2e skipped without env;
+  trusted-origin suite grew 5→7 cases: request-origin match/mismatch/spoof, comma-joined
+  proxy hops, malformed headers, dual-protocol direct connection).
+- `npm run build` success.
+- **Live production-mode run** (`scripts/verify_s13_deploy_auth.mjs`, 8/8): `npm start`
+  (NODE_ENV=production) with the browser origin NOT in any allowlist — exactly the deployed
+  failure condition. Signup form: origin gate passes, request proceeds to the Supabase step
+  ("We could not create that account" against a deliberately fake endpoint — the old code
+  showed "site origin is not configured" here). Google button: action redirects to
+  `<supabase>/auth/v1/authorize?provider=google&redirect_to=http://localhost:3000/auth/callback`
+  — correct provider + redirect target, origin gate passed. Zero client errors.
+
+### Handed to owner (dashboard steps — code alone cannot fix the Supabase side)
+
+1. Supabase Dashboard → Authentication → URL Configuration → **Site URL** = deployed URL.
+2. Same page → **Redirect URLs**: add `https://<deployed-host>/**` (+ keep
+   `http://localhost:3000/**` for local dev, + any preview hosts).
+3. Authentication → Sign In / Providers → Google stays enabled (keys unchanged).
+4. Redeploy with env vars set for the runtime, then hard-refresh the login page.
+
+---
+
 ## 2026-11-20 — Session 11: health-id crash fix (final) + P2-13 amendments + pharmacy resolve hardening
 
 **Context**: The owner reported the production crash `duplicate key value violates unique constraint
