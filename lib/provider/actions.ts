@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import crypto from "node:crypto";
 import { readPlatformConfig } from "@/lib/admin/config";
 import { insertPatientWithUniqueHealthId } from "@/lib/patient/health-id";
+import { validatePatientRegistration } from "@/lib/provider/patient-validation";
 
 /**
  * Resolve the caller's provider organization from their ACTIVE staff role
@@ -40,6 +41,9 @@ export async function registerRealPatient(input: {
   fullName: string;
   cnic: string;
   phone: string;
+  /** Optional — when the patient later signs up with the same email, the
+   *  portal CLAIMS this row instead of creating a duplicate Health ID. */
+  email?: string;
   dob?: string;
   gender?: string;
   bloodGroup?: string;
@@ -75,13 +79,23 @@ export async function registerRealPatient(input: {
     );
   }
   const deskProviderId = deskRole.provider_id as string;
-  // CNIC identity (brief 5.2 / 11.10): normalize to 13 digits so formatting
-  // variants of the same card collide on the DB unique index, and reject
-  // duplicates BEFORE creating any invoice/ledger/audit rows.
-  const cnicDigits = (input.cnic ?? "").replace(/[^0-9]/g, "");
-  if (cnicDigits.length !== 13) {
-    throw new Error("CNIC must contain exactly 13 digits (format: 42101-1234567-1).");
+
+  // Owner feedback 2026-11-21: the SAME validation runs on the client (instant
+  // per-field feedback) and here on the server (source of truth — the client
+  // can always be bypassed). Rejects 30-digit phones, malformed names/emails,
+  // future dates of birth; normalizes phone to 0-prefixed digits and email to
+  // lowercase.
+  const validated = validatePatientRegistration({
+    fullName: input.fullName ?? "",
+    cnic: input.cnic ?? "",
+    phone: input.phone ?? "",
+    email: input.email,
+    dob: input.dob,
+  });
+  if (!validated.ok) {
+    throw new Error(validated.error);
   }
+  const { fullName, cnic: cnicDigits, phone, email, dob } = validated.value;
 
   // Duplicate pre-check (brief 5.2). A missing-column error here means the
   // migration has not been applied yet — fall through to the insert, which
@@ -97,13 +111,36 @@ export async function registerRealPatient(input: {
     );
   }
 
+  // Email identity (owner feedback 2026-11-21): one patient record per email —
+  // a duplicate email means the person is already registered (possibly with a
+  // portal account). A missing-column error means the contact migration has
+  // not been applied yet — fall through to the insert, which produces the
+  // actionable migration-hint message.
+  if (email) {
+    const { data: existingByEmail, error: emailCheckError } = await admin
+      .from("patients")
+      .select("health_id, full_name, user_id")
+      .eq("email", email)
+      .maybeSingle();
+    if (!emailCheckError && existingByEmail) {
+      throw new Error(
+        `This email is already registered to ${existingByEmail.full_name} (${existingByEmail.health_id}). ` +
+          (existingByEmail.user_id
+            ? "That patient already has a portal account — search the directory instead of re-registering."
+            : "When that patient signs up with this email, the portal will link to the existing Health ID automatically.")
+      );
+    }
+  }
+
   // 1. Insert patient. D16/D20: Health ID from max(health_id) with a fresh
   // re-read on every retry — never count(*), which collides with an existing
   // health_id as soon as any patient row has been deleted.
   const outcome = await insertPatientWithUniqueHealthId(admin, {
-    full_name: input.fullName.trim(),
+    full_name: fullName,
     cnic: cnicDigits,
-    date_of_birth: input.dob ? input.dob : null,
+    phone,
+    email,
+    date_of_birth: dob ? dob : null,
     gender: input.gender || null,
     blood_group: input.bloodGroup || "O+",
     created_by: user.id,
@@ -111,10 +148,19 @@ export async function registerRealPatient(input: {
 
   if (!outcome.ok) {
     const pError = outcome.error;
-    // Unique-violation (23505) = a concurrent desk registered the same CNIC between
-    // our pre-check and the insert — the DB index is the source of truth.
+    // Unique-violation (23505) = a concurrent desk registered the same CNIC or
+    // email between our pre-check and the insert — the DB index is the source
+    // of truth.
     if (pError.code === "23505" && /cnic/i.test(pError.message)) {
       throw new Error("This CNIC was just registered by another desk. Reload the directory and search by CNIC.");
+    }
+    if (pError.code === "23505" && /email/i.test(pError.message)) {
+      throw new Error("This email was just registered by another desk. Reload the directory and search by email.");
+    }
+    if (/patients\.(phone|email)|column .* does not exist/i.test(pError.message)) {
+      throw new Error(
+        "Could not register patient: the patients table is missing the phone/email columns — apply migration 20261121100000_patient_contact_email_link.sql in the Supabase SQL editor."
+      );
     }
     if (/cnic/i.test(pError.message) && /could not find|does not exist/i.test(pError.message)) {
       throw new Error(
@@ -179,6 +225,7 @@ export async function registerRealPatient(input: {
   });
 
   revalidatePath("/front-desk/patients");
+  revalidatePath("/front-desk/collections");
   revalidatePath("/front-desk/overview");
   revalidatePath("/admin/overview");
 

@@ -98,6 +98,7 @@ describe("migrations manifest", () => {
       "20261119100000",
       "20261119200000",
       "20261121000000",
+      "20261121100000",
     ]);
   });
 
@@ -285,7 +286,7 @@ describe("runAutoSetup", () => {
     });
     return withEnv({ DATABASE_URL: LOCAL_URL, AUTO_DB_SETUP: undefined }, async () => {
       const outcome = await runAutoSetup({ pool: fake.pool });
-      expect(outcome.appliedVersions).toEqual(["20261119000000", "20261119100000", "20261119200000", "20261121000000"]);
+      expect(outcome.appliedVersions).toEqual(["20261119000000", "20261119100000", "20261119200000", "20261121000000", "20261121100000"]);
     });
   });
 

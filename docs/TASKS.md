@@ -9,6 +9,61 @@ Legend: [done] completed · [wip] in progress · [todo] not started · [blocked]
 Full inventory of roles/pages/components/APIs vs `HARD_Developer_Brief_v2.md`, documented in
 `task.md` (repo root). Quality gate at end of Phase 1: `tsc --noEmit` 0 errors, vitest 17/17.
 
+## Session 12 (2026-11-21) — Workspace page differentiation + front-desk validation + email linking
+
+Owner feedback after testing the Session-11 final version; every item below was reported live.
+
+- [done] **Every workspace page now renders DISTINCT content (was: same panel on all pages)**:
+  - Doctor: overview = dashboard (KPIs + quick links + latest prescriptions read-only) ·
+    Patients = clinical directory · New prescription = the ONLY page with the composer ·
+    Prescriptions = full history list with Repeat/Amend (both now navigate to the composer
+    with the medicines loaded). `Select for prescription` in the directory also navigates.
+  - Pharmacy: a section-string mismatch (`"Dispenses"/"Bills"` vs the mapped
+    `"Recent dispenses"`) made ALL four pages render the resolve card. Now Overview =
+    dashboard, Resolve = lookup+OTP tool, Dispenses/Bills = the pharmacist's OWN recorded
+    actions from the DB (`listMyPharmacyActivity`, self-scoped per brief §4).
+  - Lab: overview duplicated the issue form AND the reports page listed hard-coded demo
+    rows (Amna/Bilal LAB-948x). Now Overview = dashboard, Issue report = the form only,
+    Reports issued = REAL `lab_reports` rows with public verification links.
+  - Platform admin: the overview embedded the role-assignment manager and the business
+    configuration editor (both have their own pages) plus the offline demo's fake panels.
+    Now Overview = real `admin_platform_summary` KPI dashboard + quick links, and
+    /admin/audit lists REAL `audit_events` (metadata only, actor names resolved via
+    profiles) instead of the demo event list. Demo panels remain only on /demo.
+- [done] **Front-desk tab strip navigates**: the overview's "Patient Directory / Register New
+  Patient / Daily Collections & Ledger" buttons flipped LOCAL state only (URL never changed)
+  while the sidebar actually navigated — the strip is now real `<a href>` links (role=tablist),
+  and `/front-desk/patients` shows the DIRECTORY (it previously showed the registration form
+  because the section map collapsed `patients` and `patients/new` into the same label).
+- [done] **Registration validation (shared client+server)**: `lib/provider/patient-validation.ts`
+  — the reported "30 numbers as a phone" is rejected; Pakistani phone normalization
+  (0300-1234567 / +92 / landline), 13-digit CNIC, name charset + length, optional-but-validated
+  email, DOB between 1900 and today. Same module runs in the form (inline per-field errors)
+  and in `registerRealPatient` (source of truth). 12 unit tests.
+- [done] **Email column + portal-signup linking**: migration `20261121100000` adds
+  `patients.phone` + `patients.email` with a case-insensitive partial UNIQUE index
+  (`patients_email_ci_key`, NULLs exempt). The desk records the email; when that person SIGNS
+  UP with the same email, `ensurePatientRecord` CLAIMS the existing row (stamps user_id, keeps
+  the desk-issued Health ID, receipts and history preserved; audited as
+  `portal_account_linked`) instead of creating a duplicate — 7 unit tests incl. never hijacking
+  another account's row and the same-user race. Duplicate emails at the desk are rejected with
+  a friendly message. `listRealPatients` shows phone/email/portal-link status in the directory.
+- [done] **Front-desk collections page is real**: previously patient-count × fee with
+  hard-coded PKR 500/150/350 rows; now `listFrontDeskCollections` lists real invoices with
+  their ledger splits (scoped to the desk's provider org), config-driven share percentages,
+  and real receipt numbers.
+- [done] Verification: `tsc` 0 errors · vitest **87 passed** (16 new panel render tests pin
+  that each section renders distinct content) · `npm run build` success · embedded-PG e2e 4/4
+  with all 9 migrations on a fresh DB · contact-migration behavior verified on real PG
+  (duplicate email 23505, multiple NULL emails OK, claim UPDATE + audit insert) · live browser
+  run against a local mock Supabase (`scripts/mock_supabase_s12.mjs` + `verify_s12_workspaces.mjs`)
+  **39/39 checks, zero uncaught client errors** — includes the exact owner scenario
+  (admin→patient switch) and inline rejection of the 30-digit phone.
+- [blocked] Live run against the REAL Supabase project: the sandbox recycled and
+  `.env.local` (excluded from backups) was lost — the owner must re-provide the project
+  URL + keys (or rotate them) and apply migration `20261121100000` in the SQL editor, then
+  the standard live pass can re-run.
+
 ## Session 11 (2026-11-20) — Final hardening: health-id crash + amendments — the last gaps
 
 - [done] **Health-ID duplicate crash fixed and hardened (D16→D20)**: the owner hit

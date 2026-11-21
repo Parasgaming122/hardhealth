@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Printer, BadgeCheck, BookmarkPlus, Check, FilePen, FilePlus2, History, LayoutTemplate, Pill, Plus, QrCode, Repeat, Search, Stethoscope, Trash2, UsersRound, X } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Printer, BadgeCheck, BookmarkPlus, Check, FileClock, FilePen, FilePlus2, History, LayoutTemplate, Pill, Plus, QrCode, Repeat, Search, Stethoscope, Trash2, UsersRound, X } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { Badge, Button } from "@/components/ui";
 import { dateLabel, pkr } from "@/lib/domain";
@@ -25,6 +26,7 @@ export function RealDoctorPanel({
   providerName?: string;
   section?: string;
 }) {
+  const router = useRouter();
   const [selectedPatientId, setSelectedPatientId] = useState(patients[0]?.id || "");
   const [complaint, setComplaint] = useState("Seasonal respiratory cough");
   const [diagnosis, setDiagnosis] = useState("Mild bronchial asthma");
@@ -173,6 +175,9 @@ export function RealDoctorPanel({
     setRepeatStatus(
       `Repeated ${rx.code} for ${rx.patientName} — ${rx.items.length} medicine${rx.items.length === 1 ? "" : "s"} loaded${switchedPatient ? " (patient switched)" : ""}. Complaint and diagnosis are not stored on the original — update them, then issue.`
     );
+    // Owner feedback 2026-11-21: Repeat lives on the prescriptions pages — jump
+    // to the composer so the loaded medicines are immediately visible.
+    router.push("/doctor/prescriptions/new");
   };
 
   // ---- Amendments (brief Section 6: new version + cancel the old QR) ----
@@ -197,6 +202,9 @@ export function RealDoctorPanel({
     setAmendStatus(
       `Amending ${rx.code} (v${rx.version}) for ${rx.patientName} — ${rx.items.length} medicine${rx.items.length === 1 ? "" : "s"} loaded. Issuing will cancel the original QR and issue v${rx.version + 1}; the old record stays in the history. The consultation fee is not re-charged.`
     );
+    // Owner feedback 2026-11-21: Amend lives on the prescriptions pages — jump
+    // to the composer where the amber amendment banner shows.
+    router.push("/doctor/prescriptions/new");
   };
 
   const cancelAmend = () => {
@@ -245,33 +253,180 @@ export function RealDoctorPanel({
     }
   };
 
+  // Owner feedback 2026-11-21: the doctor workspace's overview, new-prescription
+  // and prescriptions pages all rendered the SAME "Digital prescription tool"
+  // card. Each page now renders distinct content; the composer lives only on
+  // "New prescription".
+  const isOverview = section === "Today";
+  const isDirectory = section === "Patient history";
+  const isRxHistory = section === "Recent prescriptions";
+
+  /** The recent-prescriptions list — reused by the composer (repeat strip),
+   *  the prescriptions page (full) and the overview (top few, read-only). */
+  const renderRecentPrescriptions = (limit?: number, readOnly = false) => {
+    const rxs = typeof limit === "number" ? recentPrescriptions.slice(0, limit) : recentPrescriptions;
+    return (
+      <div className="pt-2">
+        <div className="mb-2 flex items-center justify-between">
+          <div className="text-xs font-bold text-slate-800">Recent prescriptions ({recentPrescriptions.length})</div>
+          <div className="text-[10px] text-slate-400">Repeat loads the same medicines onto a new prescription</div>
+        </div>
+
+        {recentPrescriptions.length === 0 ? (
+          <div className="text-[10px] text-slate-400">
+            Nothing to repeat yet — prescriptions you issue appear in this list for one-tap reuse.
+          </div>
+        ) : (
+          <div className="space-y-1.5">
+            {lastForPatient && !readOnly && (
+              <button
+                type="button"
+                title={`Repeat ${lastForPatient.code} for ${lastForPatient.patientName}`}
+                className="flex w-full items-center justify-between rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2.5 text-left transition-colors hover:bg-emerald-100"
+                onClick={() => applyRepeat(lastForPatient)}
+              >
+                <span className="flex items-center gap-2">
+                  <History size={13} className="shrink-0 text-emerald-700" />
+                  <span>
+                    <span className="block text-xs font-bold text-emerald-900">
+                      Repeat last prescription for {lastForPatient.patientName}
+                    </span>
+                    <span className="block text-[10px] text-emerald-800/80">
+                      {lastForPatient.code} · {dateLabel(lastForPatient.issuedAt)} · {lastForPatient.items.length} medicine{lastForPatient.items.length === 1 ? "" : "s"} · {pkr(lastForPatient.consultationCost)}
+                    </span>
+                  </span>
+                </span>
+                <Repeat size={14} className="shrink-0 text-emerald-700" />
+              </button>
+            )}
+
+            {rxs.map((rx) => (
+              <div key={rx.id} className="flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50/50 p-2.5 text-xs">
+                <div>
+                  <span className="font-mono font-bold text-slate-800">{rx.code}</span>
+                  <span className="text-slate-500"> — {rx.patientName} ({rx.patientHealthId})</span>
+                  <div className="text-[10px] text-slate-400">
+                    {dateLabel(rx.issuedAt)} · v{rx.version}{rx.supersedesCode ? ` · replaces ${rx.supersedesCode}` : ""} · {rx.items.length} medicine{rx.items.length === 1 ? "" : "s"} · status {rx.status} · {pkr(rx.consultationCost)}
+                  </div>
+                </div>
+                {!readOnly && (
+                  <div className="flex shrink-0 gap-1.5">
+                    <Button
+                      size="small"
+                      variant="secondary"
+                      title={
+                        amendable(rx)
+                          ? `Amend ${rx.code}: cancel its QR and issue a corrected version`
+                          : rx.status === "cancelled"
+                            ? "Already superseded by an amendment — amend the newest version instead"
+                            : "Already fully dispensed — issue a new prescription instead"
+                      }
+                      disabled={!amendable(rx)}
+                      onClick={() => applyAmend(rx)}
+                    >
+                      <FilePen size={11} /> Amend
+                    </Button>
+                    <Button size="small" variant="secondary" onClick={() => applyRepeat(rx)}>
+                      <Repeat size={11} /> Repeat
+                    </Button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {!readOnly && repeatError && <div className="notice coral mt-2">{repeatError}</div>}
+        {!readOnly && repeatStatus && <div className="notice mt-2">{repeatStatus}</div>}
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-6">
-      <div className="kpi-grid">
-        <div className="card kpi">
-          <div className="kpi-label"><UsersRound size={15} /> Registered patients</div>
-          <div className="kpi-value">{patients.length}</div>
-          <div className="kpi-foot">Available in clinic directory</div>
+      {isOverview && (
+        <div className="kpi-grid">
+          <div className="card kpi">
+            <div className="kpi-label"><UsersRound size={15} /> Registered patients</div>
+            <div className="kpi-value">{patients.length}</div>
+            <div className="kpi-foot">Available in clinic directory</div>
+          </div>
+          <div className="card kpi">
+            <div className="kpi-label"><Pill size={15} /> Prescriptions issued</div>
+            <div className="kpi-value">{recentPrescriptions.length}</div>
+            <div className="kpi-foot">Your recent issuing history</div>
+          </div>
+          <div className="card kpi">
+            <div className="kpi-label"><BadgeCheck size={15} /> Saved templates</div>
+            <div className="kpi-value">{templates.length}</div>
+            <div className="kpi-foot">One-tap repeat prescribing</div>
+          </div>
+          <div className="card kpi">
+            <div className="kpi-label"><Stethoscope size={15} /> Default fee</div>
+            <div className="kpi-value">{pkr(Number(consultationCost) || 0)}</div>
+            <div className="kpi-foot">Posted to the patient cost record</div>
+          </div>
         </div>
-        <div className="card kpi">
-          <div className="kpi-label"><Stethoscope size={15} /> Consultation fee</div>
-          <div className="kpi-value">{pkr(Number(consultationCost) || 0)}</div>
-          <div className="kpi-foot">Auto-creates verified care cost</div>
-        </div>
-        <div className="card kpi">
-          <div className="kpi-label"><Pill size={15} /> Seeded medicines</div>
-          <div className="kpi-value">{medicineCatalogue.length}</div>
-          <div className="kpi-foot">Search generic & brand catalogue</div>
-        </div>
-        <div className="card kpi">
-          <div className="kpi-label"><BadgeCheck size={15} /> Saved templates</div>
-          <div className="kpi-value">{templates.length}</div>
-          <div className="kpi-foot">One-tap repeat prescribing</div>
-        </div>
-      </div>
+      )}
 
-      <div className="content-grid wide-side">
-        {section === "Patient history" ? (
+      {isOverview ? (
+        <div className="content-grid wide-side">
+          <section className="card">
+            <div className="card-head">
+              <div>
+                <h2 className="card-title">Doctor quick actions</h2>
+                <div className="card-caption">Prescribe in under 30 seconds with templates and repeats</div>
+              </div>
+            </div>
+            <div className="card-body space-y-2">
+              <a href="/doctor/prescriptions/new" className="flex items-center justify-between rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-left transition hover:bg-emerald-100 no-underline">
+                <span className="flex items-center gap-2.5">
+                  <FilePlus2 size={16} className="text-emerald-700" />
+                  <span>
+                    <span className="block text-xs font-bold text-emerald-900">Write a new prescription</span>
+                    <span className="block text-[10px] text-emerald-800/80">Digital issuing with QR · printable sheet</span>
+                  </span>
+                </span>
+                <span className="text-[10px] font-bold text-emerald-700">Open →</span>
+              </a>
+              <a href="/doctor/patients" className="flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 text-left transition hover:bg-slate-100 no-underline">
+                <span className="flex items-center gap-2.5">
+                  <UsersRound size={16} className="text-slate-600" />
+                  <span>
+                    <span className="block text-xs font-bold text-slate-800">Patient clinical directory</span>
+                    <span className="block text-[10px] text-slate-500">{patients.length} patients · search by Health ID, CNIC or name</span>
+                  </span>
+                </span>
+                <span className="text-[10px] font-bold text-slate-500">Open →</span>
+              </a>
+              <a href="/doctor/prescriptions" className="flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 text-left transition hover:bg-slate-100 no-underline">
+                <span className="flex items-center gap-2.5">
+                  <FileClock size={16} className="text-slate-600" />
+                  <span>
+                    <span className="block text-xs font-bold text-slate-800">Recent prescriptions</span>
+                    <span className="block text-[10px] text-slate-500">{recentPrescriptions.length} issued · repeat or amend any of them</span>
+                  </span>
+                </span>
+                <span className="text-[10px] font-bold text-slate-500">Open →</span>
+              </a>
+            </div>
+          </section>
+
+          <section className="card">
+            <div className="card-head">
+              <div>
+                <h2 className="card-title">Latest prescriptions</h2>
+                <div className="card-caption">Newest from your issuing history</div>
+              </div>
+              <Badge type="verified">Audit locked</Badge>
+            </div>
+            <div className="card-body">
+              {renderRecentPrescriptions(4, true)}
+            </div>
+          </section>
+        </div>
+      ) : isDirectory ? (
+        <div className="content-grid wide-side">
           <section className="card col-span-full">
             <div className="card-head">
               <div>
@@ -300,7 +455,7 @@ export function RealDoctorPanel({
                         <td>{p.bloodGroup || "O+"}</td>
                         <td className="text-slate-400">{new Date(p.createdAt).toLocaleDateString()}</td>
                         <td>
-                          <Button size="small" variant="secondary" onClick={() => setSelectedPatientId(p.id)}>
+                          <Button size="small" variant="secondary" onClick={() => { setSelectedPatientId(p.id); router.push("/doctor/prescriptions/new"); }}>
                             Select for prescription
                           </Button>
                         </td>
@@ -316,7 +471,24 @@ export function RealDoctorPanel({
               </div>
             </div>
           </section>
-        ) : (
+        </div>
+      ) : isRxHistory ? (
+        <div className="content-grid wide-side">
+          <section className="card col-span-full">
+            <div className="card-head">
+              <div>
+                <h2 className="card-title">Recent prescriptions</h2>
+                <div className="card-caption">Your issuing history — repeat loads the medicines onto a new prescription, amend cancels the old QR and issues a corrected version</div>
+              </div>
+              <Badge type="verified">{recentPrescriptions.length} issued</Badge>
+            </div>
+            <div className="card-body">
+              {renderRecentPrescriptions()}
+            </div>
+          </section>
+        </div>
+      ) : (
+        <div className="content-grid wide-side">
           <>
             {/* Prescription Form / Issued Screen */}
             <section className="card">
@@ -562,77 +734,7 @@ export function RealDoctorPanel({
                 </div>
 
                 {/* Repeat-last-prescription (brief 7.2 — prescribe in under 30 seconds) */}
-                <div className="pt-2">
-                  <div className="mb-2 flex items-center justify-between">
-                    <div className="text-xs font-bold text-slate-800">Recent prescriptions ({recentPrescriptions.length})</div>
-                    <div className="text-[10px] text-slate-400">Repeat loads the same medicines onto a new prescription</div>
-                  </div>
-
-                  {recentPrescriptions.length === 0 ? (
-                    <div className="text-[10px] text-slate-400">
-                      Nothing to repeat yet — prescriptions you issue here appear in this list for one-tap reuse.
-                    </div>
-                  ) : (
-                    <div className="space-y-1.5">
-                      {lastForPatient && (
-                        <button
-                          type="button"
-                          title={`Repeat ${lastForPatient.code} for ${lastForPatient.patientName}`}
-                          className="flex w-full items-center justify-between rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2.5 text-left transition-colors hover:bg-emerald-100"
-                          onClick={() => applyRepeat(lastForPatient)}
-                        >
-                          <span className="flex items-center gap-2">
-                            <History size={13} className="shrink-0 text-emerald-700" />
-                            <span>
-                              <span className="block text-xs font-bold text-emerald-900">
-                                Repeat last prescription for {lastForPatient.patientName}
-                              </span>
-                              <span className="block text-[10px] text-emerald-800/80">
-                                {lastForPatient.code} · {dateLabel(lastForPatient.issuedAt)} · {lastForPatient.items.length} medicine{lastForPatient.items.length === 1 ? "" : "s"} · {pkr(lastForPatient.consultationCost)}
-                              </span>
-                            </span>
-                          </span>
-                          <Repeat size={14} className="shrink-0 text-emerald-700" />
-                        </button>
-                      )}
-
-                      {recentPrescriptions.map((rx) => (
-                        <div key={rx.id} className="flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50/50 p-2.5 text-xs">
-                          <div>
-                            <span className="font-mono font-bold text-slate-800">{rx.code}</span>
-                            <span className="text-slate-500"> — {rx.patientName} ({rx.patientHealthId})</span>
-                            <div className="text-[10px] text-slate-400">
-                              {dateLabel(rx.issuedAt)} · v{rx.version}{rx.supersedesCode ? ` · replaces ${rx.supersedesCode}` : ""} · {rx.items.length} medicine{rx.items.length === 1 ? "" : "s"} · status {rx.status} · {pkr(rx.consultationCost)}
-                            </div>
-                          </div>
-                          <div className="flex shrink-0 gap-1.5">
-                            <Button
-                              size="small"
-                              variant="secondary"
-                              title={
-                                amendable(rx)
-                                  ? `Amend ${rx.code}: cancel its QR and issue a corrected version`
-                                  : rx.status === "cancelled"
-                                    ? "Already superseded by an amendment — amend the newest version instead"
-                                    : "Already fully dispensed — issue a new prescription instead"
-                              }
-                              disabled={!amendable(rx)}
-                              onClick={() => applyAmend(rx)}
-                            >
-                              <FilePen size={11} /> Amend
-                            </Button>
-                            <Button size="small" variant="secondary" onClick={() => applyRepeat(rx)}>
-                              <Repeat size={11} /> Repeat
-                            </Button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {repeatError && <div className="notice coral mt-2">{repeatError}</div>}
-                  {repeatStatus && <div className="notice mt-2">{repeatStatus}</div>}
-                </div>
+                {renderRecentPrescriptions()}
 
                 {/* Medicine Items */}
                 <div className="pt-2">
@@ -710,8 +812,8 @@ export function RealDoctorPanel({
           </div>
         </section>
           </>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

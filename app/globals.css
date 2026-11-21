@@ -860,3 +860,9 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   .secure-panel,.secure-profile-panel { padding: 15px; }
   .secure-panel-head { align-items: flex-start; flex-direction: column; }
 }
+
+/* Front-desk registration form validation (owner feedback 2026-11-21):
+   per-field errors surfaced inline, invalid fields get a coral ring. */
+.input-invalid { border-color:#e4726e !important; }
+.input-invalid:focus { box-shadow:0 0 0 3px rgba(228,114,110,.12) !important; }
+.field-error { color:#c04b47; font-size:9.5px; font-weight:600; line-height:1.4; }

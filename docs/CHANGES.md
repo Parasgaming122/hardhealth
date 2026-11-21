@@ -5,6 +5,96 @@ backup zip + tempfile URL produced.
 
 ---
 
+## 2026-11-21 — Session 12: workspace pages made distinct + front-desk validation + email-linked signup
+
+**Context**: the owner tested the Session-11 final version and reported, per workspace, that
+switching sidebar pages changed nothing (identical content), that the front-desk overview tabs
+did not navigate, that patient registration accepted any input ("30 numbers" as a phone, no
+email field), and asked for validated fields plus desk-registration → signup linking by email.
+
+### Root causes found
+
+1. **Pharmacy**: `RealPharmacyPanel` compared `section === "Dispenses" || "Bills"` but
+   `mapSectionForPanel` sent `"Recent dispenses"` — the condition could never be true, so all
+   four pages rendered the resolve card.
+2. **Doctor/Lab/Admin**: the panels only branched on ONE section value (`"Patient history"` /
+   `"Reports issued"`), so every other route fell through to the same tool card; the admin
+   overview additionally embedded the users manager + demo panels wholesale.
+3. **Front desk**: the overview tab strip called `setActiveTab` (local state — URL never moved),
+   and the section map labeled `patients` as `"Register patient"`, making the directory page a
+   duplicate of the registration form.
+4. **No validation**: the client checked only name-nonempty + CNIC-13; the server action the
+   same. Phone/email were never stored (no columns).
+
+### Changes
+
+1. `supabase/migrations/20261121100000_patient_contact_email_link.sql` (NEW) — `patients.phone`
+   + `patients.email` with a case-insensitive partial UNIQUE index (`patients_email_ci_key`);
+   NULL emails exempt so desk-only registrations never collide.
+2. `lib/provider/patient-validation.ts` (NEW) — shared validation/normalization (Pakistani
+   phone incl. +92 forms, 13-digit CNIC, name charset, optional email, DOB range) used by BOTH
+   the form and `registerRealPatient`. `lib/provider/patient-validation.test.ts` (NEW, 12 cases).
+3. `lib/provider/actions.ts` — `registerRealPatient` validates via the shared module, stores
+   phone/email, pre-checks duplicate email with a friendly message (portal-account aware),
+   handles the email 23505 race and the migration-missing hint; revalidates the collections page.
+4. `lib/patient/real-patient.ts` — `ensurePatientRecord` now CLAIMS an unlinked desk
+   registration whose email matches the signing-up account (stamps user_id, keeps the
+   desk-issued Health ID, best-effort `portal_account_linked` audit) before inserting a new
+   row; never hijacks rows owned by another account; survives the same-user update race.
+   `tests/fake-supabase.ts` gained `.is()` + an `auth.admin.getUserById` stub;
+   `lib/patient/email-claim.test.ts` (NEW, 7 cases).
+5. `lib/provider/real-provider.ts` — `listRealPatients` selects phone/email/user_id (D10
+   fallbacks per column generation); NEW `listRecentLabReports`, `listMyPharmacyActivity`
+   (pharmacist's own dispenses + their bills), `listFrontDeskCollections` (real invoices +
+   ledger splits, desk-org scoped). `lib/provider/types.ts` — new summary types.
+6. `lib/admin/audit-log.ts` (NEW) — `listRecentAuditEvents`: real audit_events (metadata only),
+   actor display names resolved in one extra query.
+7. `components/real-doctor-panel.tsx` — four distinct sections; Repeat/Amend/`Select for
+   prescription` now load state AND navigate to the composer; the recent-prescriptions list is
+   a shared renderer reused by overview (read-only), prescriptions page (full) and composer.
+8. `components/real-front-desk-panel.tsx` — REWRITE: tab strip is real links (role=tablist);
+   Overview = quick actions + latest registrations; Register = validated form with email field
+   + inline per-field errors + config-driven fee math; Directory = phone/email/portal-status
+   columns; Collections = real invoices. `app/globals.css` — `.input-invalid` / `.field-error`.
+9. `components/real-pharmacy-panel.tsx` — REWRITE: Overview (dashboard + quick links) / Resolve
+   (tool) / Dispenses / Bills (own real records). `components/real-lab-panel.tsx` — REWRITE:
+   Overview / New report / Reports issued (real rows, verification links).
+10. `components/secure-workspace.tsx` — section maps fixed (front-desk directory, pharmacy
+    distinct labels, lab overview), `panelSectionToHref` covers pharmacy/lab/directory; admin
+    workspace: overview = real `admin_platform_summary` dashboard + quick links (no embedded
+    managers/demo panels), audit = real event table; new props wired through.
+11. `app/[workspace]/[[...section]]/page.tsx` — fetches lab reports, pharmacy activity,
+    front-desk collections (desk org), admin audit events; passes them down.
+12. `tests/panel-sections.render.test.tsx` (NEW, 16 cases) — renderToString per section pins
+    that every page renders distinct content and the complained-about duplicates are gone.
+    `lib/db/auto-setup.test.ts` — migration list updated for the 9th migration;
+    `lib/db/migrations-manifest.ts` regenerated.
+
+### Verification (all green)
+
+- `npx tsc --noEmit` 0 errors · `npx vitest run` **87 passed** (4 e2e skipped without env).
+- Real-Postgres e2e (embedded PG 18.7, `scripts` recipe): 4/4 — a fresh DB builds all NINE
+  migrations. Contact-migration behavior verified on real PG: duplicate email → 23505 on
+  `patients_email_ci_key`, multiple NULL emails OK, claim UPDATE + audit insert valid.
+- `npm run build` success.
+- **Live browser run** (`scripts/mock_supabase_s12.mjs` — a local PostgREST/GoTrue mock with
+  Cedar-like fixtures, because the sandbox recycle lost `.env.local` — plus
+  `scripts/verify_s12_workspaces.mjs`): **39/39**, zero uncaught client errors. Logs in through
+  the real form, then per workspace: admin overview dashboard (no duplicated managers),
+  REAL audit events; doctor 4 distinct pages + Repeat→composer navigation; front-desk
+  directory/register/collections distinct, tab strip navigates, 30-digit phone rejected inline,
+  valid registration succeeds, email-link hint shown; pharmacy 4 distinct pages with real
+  dispense/bill rows; lab 3 distinct pages with the real report; patient portal renders after
+  admin switch (regression check for the Session-11 crash).
+
+### Handed to owner
+
+1. Re-provide `.env.local` values (sandbox recycle lost them; rotate if preferred).
+2. Apply `supabase/migrations/20261121100000_patient_contact_email_link.sql` in the Supabase
+   SQL editor — the only manual step; every flow degrades gracefully without it.
+
+---
+
 ## 2026-11-20 — Session 11: health-id crash fix (final) + P2-13 amendments + pharmacy resolve hardening
 
 **Context**: The owner reported the production crash `duplicate key value violates unique constraint

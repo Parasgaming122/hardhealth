@@ -18,6 +18,10 @@ export interface PatientInsertInput {
   user_id?: string | null;
   full_name: string;
   cnic?: string | null;
+  /** Normalized 0-prefixed digits (contact migration 20261121100000). */
+  phone?: string | null;
+  /** Lowercase; unique per patient — the portal signup claim key. */
+  email?: string | null;
   date_of_birth?: string | null;
   gender?: string | null;
   blood_group?: string | null;

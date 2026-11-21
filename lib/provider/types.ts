@@ -6,6 +6,67 @@ export interface RealPatientSummary {
   dob: string | null;
   bloodGroup: string | null;
   createdAt: string;
+  /** Normalized 0-prefixed digits (owner feedback 2026-11-21; null pre-migration). */
+  phone?: string | null;
+  /** Lowercase; when this person signs up with the same email the portal claims this row. */
+  email?: string | null;
+  /** True once a portal account is linked (user_id stamped). */
+  hasAccount?: boolean;
+}
+
+/** One issued lab report row for the lab workspace "Reports issued" page. */
+export interface LabReportSummary {
+  id: string;
+  testType: string;
+  hash: string;
+  fee: number;
+  patientName: string;
+  patientHealthId: string;
+  testedAt: string;
+  verifiedUrl: string;
+}
+
+/** One dispense the calling pharmacist performed (own actions only — narrow scope). */
+export interface PharmacyDispenseRow {
+  id: string;
+  /** Internal: the dispensed prescription's row id (joins bills to dispenses). */
+  prescriptionId?: string;
+  prescriptionCode: string;
+  patientName: string;
+  patientHealthId: string;
+  fillNumber: number;
+  dispensedAt: string;
+}
+
+/** One pharmacy bill attached by the calling pharmacist (cost item the dispense created). */
+export interface PharmacyBillRow {
+  id: string;
+  title: string;
+  amount: number;
+  prescriptionCode: string;
+  patientName: string;
+  patientHealthId: string;
+  date: string;
+}
+
+export interface PharmacyActivity {
+  dispenses: PharmacyDispenseRow[];
+  bills: PharmacyBillRow[];
+}
+
+/** One registration/care receipt on the front-desk collections page. */
+export interface FrontDeskCollectionRow {
+  invoiceId: string;
+  receiptNo: string;
+  patientName: string;
+  healthId: string;
+  invoiceType: string;
+  amount: number;
+  providerShare: number | null;
+  platformShare: number | null;
+  paymentMethod: string;
+  status: string;
+  date: string;
 }
 
 /** One medicine line of a prescription draft or saved template (brief 5.4 / 15). */

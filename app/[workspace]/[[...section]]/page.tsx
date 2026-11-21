@@ -7,8 +7,20 @@ import { getAdminDirectoryData } from "@/lib/admin/actions";
 import { listAllAdminProviders, type ProviderRecord } from "@/lib/admin/provider-actions";
 import { getPlatformConfigForAdmin } from "@/lib/admin/config-actions";
 import { readPlatformConfig, type PlatformConfig } from "@/lib/admin/config";
+import { listRecentAuditEvents, type AuditEventRow } from "@/lib/admin/audit-log";
 import { getRealPatientPortalData, type RealPatientPortalData } from "@/lib/patient/real-patient";
-import { listRealPatients, listDoctorTemplates, listDoctorRecentPrescriptions, type RealPatientSummary } from "@/lib/provider/real-provider";
+import {
+  listRealPatients,
+  listDoctorTemplates,
+  listDoctorRecentPrescriptions,
+  listRecentLabReports,
+  listMyPharmacyActivity,
+  listFrontDeskCollections,
+  type RealPatientSummary,
+  type LabReportSummary,
+  type PharmacyActivity,
+  type FrontDeskCollectionRow,
+} from "@/lib/provider/real-provider";
 import { getProviderAdminData } from "@/lib/provider-admin/actions";
 import { type ProviderAdminData } from "@/lib/provider-admin/types";
 import type { DoctorRecentPrescription, DoctorTemplateSummary } from "@/lib/provider/types";
@@ -51,6 +63,7 @@ export default async function WorkspaceRoute({ params }: { params: Promise<{ wor
   let adminProviders: AdminApprovedProvider[] | undefined;
   let allAdminProviders: ProviderRecord[] | undefined;
   let platformConfig: PlatformConfig | undefined;
+  let adminAuditEvents: AuditEventRow[] | undefined;
   if (hasPlatformAdmin && workspace === "admin") {
     const { data: summary } = await supabase.rpc("admin_platform_summary");
     if (summary) {
@@ -81,13 +94,35 @@ export default async function WorkspaceRoute({ params }: { params: Promise<{ wor
     // P2-8 (brief 8.7/Rule 1): live platform configuration for the real config
     // editor. Degrades to brief-22 defaults when the RPC/table is unavailable.
     platformConfig = await getPlatformConfigForAdmin();
+
+    // Owner feedback 2026-11-21: /admin/audit now lists REAL audit events
+    // (metadata only) instead of the offline demo's fake list.
+    adminAuditEvents = await listRecentAuditEvents();
   }
 
   // P2-8 (brief Rule 1): the front desk shows the live registration fee and
-  // revenue split from the config table — never hard-coded.
+  // revenue split from the config table — never hard-coded. The collections
+  // page lists REAL invoices with their ledger splits (owner feedback
+  // 2026-11-21), scoped to the desk's own provider organization when the
+  // signed-in account has an active front-desk role there.
   let frontDeskConfig: PlatformConfig | undefined;
+  let frontDeskCollections: FrontDeskCollectionRow[] | undefined;
   if (workspace === "front-desk") {
     frontDeskConfig = await readPlatformConfig();
+    const admin = createSupabaseAdminClient();
+    const { data: deskRole } = await admin
+      .from("user_roles")
+      .select("provider_id")
+      .eq("user_id", user.id)
+      .eq("role", "front_desk")
+      .eq("is_active", true)
+      .not("provider_id", "is", null)
+      .order("created_at")
+      .limit(1)
+      .maybeSingle();
+    frontDeskCollections = await listFrontDeskCollections(
+      deskRole?.provider_id ? (deskRole.provider_id as string) : undefined
+    );
   }
 
   let patientPortalData: RealPatientPortalData | undefined;
@@ -98,6 +133,21 @@ export default async function WorkspaceRoute({ params }: { params: Promise<{ wor
   let realPatients: RealPatientSummary[] | undefined;
   if (workspace === "doctor" || workspace === "front-desk" || workspace === "lab") {
     realPatients = await listRealPatients();
+  }
+
+  // Owner feedback 2026-11-21: the lab "Reports issued" page listed hard-coded
+  // demo rows — it now shows the real reports registry (D10: degrades to []).
+  let labReports: LabReportSummary[] | undefined;
+  if (workspace === "lab") {
+    labReports = await listRecentLabReports();
+  }
+
+  // Owner feedback 2026-11-21: the pharmacy dispenses/bills pages were copies
+  // of the resolve card — they now show the pharmacist's OWN recorded actions
+  // (strictly self-scoped, brief §4 narrow-scope rule).
+  let pharmacyActivity: PharmacyActivity | undefined;
+  if (workspace === "pharmacy") {
+    pharmacyActivity = await listMyPharmacyActivity(user.id);
   }
 
   // Brief 7.2: saved prescription templates for the <30s issuing flow. Degrades to
@@ -127,11 +177,15 @@ export default async function WorkspaceRoute({ params }: { params: Promise<{ wor
       adminUsers={adminUsers}
       adminProviders={adminProviders}
       allAdminProviders={allAdminProviders}
+      adminAuditEvents={adminAuditEvents}
       platformConfig={platformConfig}
       frontDeskConfig={frontDeskConfig}
+      frontDeskCollections={frontDeskCollections}
       providerAdminData={providerAdminData}
       patientPortalData={patientPortalData}
       realPatients={realPatients}
+      labReports={labReports}
+      pharmacyActivity={pharmacyActivity}
       doctorTemplates={doctorTemplates}
       doctorRecentPrescriptions={doctorRecentPrescriptions}
     />

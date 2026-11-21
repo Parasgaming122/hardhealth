@@ -55,6 +55,80 @@ function toRealPatientRecord(row: PatientRow): RealPatientRecord {
   // the config table and the patient's ingestion history)
 }
 
+/**
+ * Email-link claim (owner feedback 2026-11-21): a front desk can register a
+ * patient and record their email; when that person later SIGNS UP with the
+ * same email, the portal should CLAIM the existing patient row (stamp
+ * user_id onto it) instead of creating a duplicate Health ID — "register at
+ * the desk, sign up at home, one record" (brief 5.2: one patient, one Health
+ * ID).
+ *
+ * Rules:
+ *  - only rows with user_id IS NULL are claimable (never hijack another
+ *    account's record);
+ *  - email comparison is exact on the LOWERCASE value (both the desk form and
+ *    the signup form normalize to lowercase before writing);
+ *  - if the contact migration has not been applied yet (no email column),
+ *    this silently degrades to the insert path — never a 500;
+ *  - the claim is audited (best-effort — a failed audit insert must not
+ *    block the patient from their own record).
+ */
+async function claimDeskRegistrationByEmail(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  userId: string
+): Promise<RealPatientRecord | null> {
+  let email: string | undefined;
+  try {
+    const { data: authUser } = await admin.auth.admin.getUserById(userId);
+    email = authUser?.user?.email?.trim().toLowerCase() || undefined;
+  } catch {
+    return null;
+  }
+  if (!email) return null;
+
+  const { data: candidate, error } = await admin
+    .from("patients")
+    .select("*")
+    .eq("email", email)
+    .is("user_id", null)
+    .maybeSingle();
+  if (error || !candidate) return null;
+
+  const row = candidate as unknown as PatientRow;
+  const { error: updateError } = await admin
+    .from("patients")
+    .update({ user_id: userId })
+    .eq("id", row.id);
+
+  if (updateError) {
+    // Two tabs of the same signup raced and the other tab already claimed a
+    // row for this user (patients_user_id_key) — return that row.
+    if (/patients_user_id_key|duplicate key/i.test(updateError.message ?? "")) {
+      const { data: raced } = await admin
+        .from("patients")
+        .select("*")
+        .eq("user_id", userId)
+        .maybeSingle();
+      if (raced) return toRealPatientRecord(raced as unknown as PatientRow);
+    }
+    return null;
+  }
+
+  // Best-effort audit of the link (portal account ↔ desk registration).
+  await admin
+    .from("audit_events")
+    .insert({
+      actor_user_id: userId,
+      patient_id: row.id,
+      event_type: "write",
+      resource_type: "patient_registration",
+      metadata: { action: "portal_account_linked", via: "email_match", email },
+    })
+    .then(() => undefined, () => undefined);
+
+  return toRealPatientRecord({ ...row, user_id: userId });
+}
+
 export async function ensurePatientRecord(userId: string, displayName?: string): Promise<RealPatientRecord> {
   const admin = createSupabaseAdminClient();
   const { data: existing } = await admin
@@ -65,6 +139,14 @@ export async function ensurePatientRecord(userId: string, displayName?: string):
 
   if (existing) {
     return toRealPatientRecord(existing as unknown as PatientRow);
+  }
+
+  // The account has no patient row of its own — before inserting a NEW one,
+  // check whether a front-desk registration with this account's email is
+  // waiting to be linked (owner feedback 2026-11-21).
+  const claimed = await claimDeskRegistrationByEmail(admin, userId);
+  if (claimed) {
+    return claimed;
   }
 
   const fullName = displayName && displayName !== "H.A.R.D user" ? displayName : "H.A.R.D Patient";

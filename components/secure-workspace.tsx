@@ -3,7 +3,7 @@
 import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Activity, ArrowRight, BadgeCheck, Building2, ClipboardList, Database, FileClock, FilePlus2, FileText, LayoutDashboard, LogOut, Pill, Play, ScanLine, Settings2, Shield, Sparkles, Stethoscope, UsersRound, WalletCards } from "lucide-react";
+import { Activity, BadgeCheck, Building2, ClipboardList, Database, FileClock, FileText, LayoutDashboard, LogOut, Pill, Play, ScanLine, Settings2, Shield, UsersRound, WalletCards } from "lucide-react";
 import { AdminUserManager } from "@/components/admin-user-manager";
 import { AdminProvidersManager } from "@/components/admin-providers-manager";
 import { SecureMobileNav } from "@/components/secure-mobile-nav";
@@ -14,16 +14,16 @@ import { AdminConfigEditor } from "@/components/admin-config-editor";
 import { RealProviderAdminPanel } from "@/components/real-provider-admin-panel";
 import { RealPharmacyPanel } from "@/components/real-pharmacy-panel";
 import { RealLabPanel } from "@/components/real-lab-panel";
-import { PlatformAdminPanel } from "@/components/panels/platform-admin-panel";
 import { signOutAction } from "@/app/login/actions";
 import { workspaceConfig, workspaceSlugs, isPlatformAdmin, type WorkspacePayload, type WorkspaceSlug } from "@/lib/auth/roles";
 import type { AdminApprovedProvider, AdminDirectoryUser } from "@/lib/admin/types";
 import type { ProviderRecord } from "@/lib/admin/provider-actions";
 import type { RealPatientPortalData } from "@/lib/patient/real-patient";
-import type { RealPatientSummary } from "@/lib/provider/real-provider";
+import type { FrontDeskCollectionRow, LabReportSummary, PharmacyActivity, RealPatientSummary } from "@/lib/provider/types";
 import type { DoctorRecentPrescription, DoctorTemplateSummary } from "@/lib/provider/types";
 import type { PlatformConfig } from "@/lib/admin/config";
 import type { ProviderAdminData } from "@/lib/provider-admin/types";
+import type { AuditEventRow } from "@/lib/admin/audit-log";
 import { pkr } from "@/lib/domain";
 
 const icons = { overview: LayoutDashboard, timeline: Activity, prescriptions: Pill, reports: FileText, expenses: WalletCards, providers: Shield, billing: FileClock, settings: Settings2, patients: UsersRound, collections: WalletCards, resolve: ScanLine, dispenses: Pill, bills: FileClock, staff: UsersRound, ledger: WalletCards, config: Settings2, audit: ClipboardList, users: UsersRound } as const;
@@ -62,22 +62,28 @@ function mapSectionForPanel(workspace: WorkspaceSlug, sections: string[]): strin
     return map[key] ?? "Today";
   }
   if (workspace === "front-desk") {
+    // Owner feedback 2026-11-21: /front-desk/patients showed the registration
+    // form (same as patients/new) — it is the directory page.
     const map: Record<string, string> = {
-      overview: "Overview", "patients/new": "Register patient", patients: "Register patient", collections: "Daily collections",
+      overview: "Overview", "patients/new": "Register patient", patients: "Patient directory", collections: "Daily collections",
     };
     return map[key] ?? "Overview";
   }
   if (workspace === "pharmacy") {
+    // Owner feedback 2026-11-21: every pharmacy page rendered the same card —
+    // the old map collapsed all four routes into two labels that the panel
+    // never matched. Distinct labels, distinct pages.
     const map: Record<string, string> = {
-      overview: "Scan / resolve", resolve: "Scan / resolve", dispenses: "Recent dispenses", bills: "Recent dispenses",
+      overview: "Overview", resolve: "Resolve", dispenses: "Dispenses", bills: "Bills",
     };
-    return map[key] ?? "Scan / resolve";
+    return map[key] ?? "Overview";
   }
   if (workspace === "lab") {
+    // Owner feedback 2026-11-21: the overview duplicated the issue-report form.
     const map: Record<string, string> = {
-      overview: "New report", "reports/new": "New report", reports: "Reports issued",
+      overview: "Overview", "reports/new": "New report", reports: "Reports issued",
     };
-    return map[key] ?? "New report";
+    return map[key] ?? "Overview";
   }
   if (workspace === "provider-admin") {
     const map: Record<string, string> = {
@@ -113,9 +119,21 @@ function panelSectionToHref(workspace: WorkspaceSlug, section: string): string {
   if (workspace === "front-desk") {
     const map: Record<string, string> = {
       Overview: "/front-desk/overview", "Register patient": "/front-desk/patients/new",
-      "Outstanding invoices": "/front-desk/collections", "Daily collections": "/front-desk/collections",
+      "Patient directory": "/front-desk/patients", "Outstanding invoices": "/front-desk/collections", "Daily collections": "/front-desk/collections",
     };
     return map[section] ?? "/front-desk/overview";
+  }
+  if (workspace === "pharmacy") {
+    const map: Record<string, string> = {
+      Overview: "/pharmacy/overview", Resolve: "/pharmacy/resolve", Dispenses: "/pharmacy/dispenses", Bills: "/pharmacy/bills",
+    };
+    return map[section] ?? "/pharmacy/overview";
+  }
+  if (workspace === "lab") {
+    const map: Record<string, string> = {
+      Overview: "/lab/overview", "New report": "/lab/reports/new", "Reports issued": "/lab/reports",
+    };
+    return map[section] ?? "/lab/overview";
   }
   return `/${workspace}/overview`;
 }
@@ -128,13 +146,17 @@ export function SecureWorkspace({
   adminUsers,
   adminProviders,
   allAdminProviders,
+  adminAuditEvents,
   patientPortalData,
   realPatients = [],
   doctorTemplates = [],
   doctorRecentPrescriptions = [],
   platformConfig,
   frontDeskConfig,
+  frontDeskCollections,
   providerAdminData,
+  labReports,
+  pharmacyActivity,
 }: {
   workspace: WorkspaceSlug;
   sections: string[];
@@ -143,13 +165,17 @@ export function SecureWorkspace({
   adminUsers?: AdminDirectoryUser[];
   adminProviders?: AdminApprovedProvider[];
   allAdminProviders?: ProviderRecord[];
+  adminAuditEvents?: AuditEventRow[];
   patientPortalData?: RealPatientPortalData;
   realPatients?: RealPatientSummary[];
   doctorTemplates?: DoctorTemplateSummary[];
   doctorRecentPrescriptions?: DoctorRecentPrescription[];
   platformConfig?: PlatformConfig;
   frontDeskConfig?: PlatformConfig;
+  frontDeskCollections?: FrontDeskCollectionRow[];
   providerAdminData?: ProviderAdminData;
+  labReports?: LabReportSummary[];
+  pharmacyActivity?: PharmacyActivity;
 }) {
   const router = useRouter();
   const config = workspaceConfig[workspace];
@@ -163,7 +189,6 @@ export function SecureWorkspace({
   const identity = isPatient && !adminOverride ? access.patient : undefined;
   const displayName = access.profile?.display_name || config.label;
   const currentKey = sections.length ? sections.join("/") : "overview";
-  const showAdminUsers = isAdminWorkspace && currentKey === "users";
 
   const panelSection = mapSectionForPanel(workspace, sections);
 
@@ -217,13 +242,17 @@ export function SecureWorkspace({
         {adminOverride && <div className="secure-override-note" role="status"><Shield size={15} /><span><strong>Platform Admin route access.</strong> You may open this H.A.R.D workspace, but clinical-record policies remain in effect.</span></div>}
 
         {/* Real Workspace Content */}
+        {/* Owner feedback 2026-11-21: the admin overview duplicated the Users
+            (role assignment) and Business configuration modules that have their
+            own pages, and the audit page rendered the offline demo's fake event
+            list. The overview is now a real aggregate dashboard with quick
+            links, and every page carries distinct, live-DB content. */}
         {workspace === "admin" ? (
           currentKey === "users" ? (
             <AdminUserManager initialUsers={adminUsers ?? []} providers={adminProviders ?? []} />
           ) : currentKey === "providers" ? (
             <div className="space-y-6">
               <AdminProvidersManager initialProviders={allAdminProviders ?? []} />
-              <PlatformAdminPanel section="Provider approvals" />
               <section className="secure-panel">
                 <div className="secure-panel-head">
                   <div>
@@ -263,14 +292,156 @@ export function SecureWorkspace({
             <div className="space-y-6">
               {/* P2-8: the REAL config editor — reads/writes the live config table (brief Rule 1). */}
               <AdminConfigEditor initialConfig={platformConfig ?? {}} />
-              <PlatformAdminPanel section="Finance & ledgers" />
             </div>
           ) : currentKey === "audit" ? (
-            <PlatformAdminPanel section="Audit log" />
+            <section className="secure-panel">
+              <div className="secure-panel-head">
+                <div>
+                  <p className="secure-eyebrow">Platform audit trail</p>
+                  <h2>Access audit — latest {(adminAuditEvents ?? []).length} events</h2>
+                </div>
+                <span className="verified-chip"><ClipboardList size={13} className="mr-1 inline" />Metadata only</span>
+              </div>
+              <div className="admin-directory-table-wrap mt-4">
+                <table className="admin-directory-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">Actor</th>
+                      <th scope="col">Event</th>
+                      <th scope="col">Resource</th>
+                      <th scope="col">Patient ref.</th>
+                      <th scope="col">Provider ref.</th>
+                      <th scope="col">Time</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(adminAuditEvents ?? []).map((e) => (
+                      <tr key={e.id}>
+                        <td><strong>{e.actorName}</strong></td>
+                        <td><span className="admin-role-chip">{e.eventType.replaceAll("_", " ")}</span></td>
+                        <td>{e.resourceType.replaceAll("_", " ")}</td>
+                        <td className="mono">{e.patientRef ?? "—"}</td>
+                        <td>{e.providerRef ?? "—"}</td>
+                        <td suppressHydrationWarning>{new Date(e.date).toLocaleString()}</td>
+                      </tr>
+                    ))}
+                    {!(adminAuditEvents ?? []).length && (
+                      <tr>
+                        <td colSpan={6} className="admin-directory-empty">No audit events recorded yet.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              <p className="mt-3 text-[10px] leading-5 text-slate-500">
+                Metadata only — patient and clinical fields are never exposed to platform administration.
+              </p>
+            </section>
           ) : (
             <div className="space-y-6">
-              <AdminUserManager initialUsers={adminUsers ?? []} providers={adminProviders ?? []} />
-              <PlatformAdminPanel section="Overview" />
+              {/* Real aggregate dashboard (admin_platform_summary RPC) — the
+                  overview no longer embeds the role-assignment or configuration
+                  editors; each has its own page. */}
+              <div className="kpi-grid">
+                <div className="card kpi">
+                  <div className="kpi-label"><Building2 size={15} /> Approved providers</div>
+                  <div className="kpi-value">{metricValue("providers_approved", access.summary?.providers_approved)}</div>
+                  <div className="kpi-foot">{metricValue("providers_pending", access.summary?.providers_pending)} pending review</div>
+                </div>
+                <div className="card kpi">
+                  <div className="kpi-label"><Database size={15} /> Invoices collected</div>
+                  <div className="kpi-value">{metricValue("invoices_paid_total", access.summary?.invoices_paid_total)}</div>
+                  <div className="kpi-foot">Paid invoices, all desks</div>
+                </div>
+                <div className="card kpi">
+                  <div className="kpi-label"><WalletCards size={15} /> Platform ledger</div>
+                  <div className="kpi-value">{metricValue("platform_ledger_total", access.summary?.platform_ledger_total)}</div>
+                  <div className="kpi-foot">Platform share of every split</div>
+                </div>
+                <div className="card kpi">
+                  <div className="kpi-label"><UsersRound size={15} /> Registered users</div>
+                  <div className="kpi-value">{(adminUsers ?? []).length}</div>
+                  <div className="kpi-foot">Directory accounts with roles</div>
+                </div>
+              </div>
+
+              <div className="content-grid wide-side">
+                <section className="card">
+                  <div className="card-head">
+                    <div>
+                      <h2 className="card-title">Platform administration</h2>
+                      <div className="card-caption">Aggregates only · clinical content stays hidden</div>
+                    </div>
+                    <span className="demo-pill"><span className="demo-dot" /> Clinical data hidden</span>
+                  </div>
+                  <div className="card-body space-y-2">
+                    <Link href="/admin/users" className="flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 text-left transition hover:bg-slate-100 no-underline">
+                      <span className="flex items-center gap-2.5">
+                        <UsersRound size={16} className="text-slate-600" />
+                        <span>
+                          <span className="block text-xs font-bold text-slate-800">Users &amp; role assignment</span>
+                          <span className="block text-[10px] text-slate-500">{(adminUsers ?? []).length} accounts · grant or revoke workspace roles</span>
+                        </span>
+                      </span>
+                      <span className="text-[10px] font-bold text-slate-500">Open →</span>
+                    </Link>
+                    <Link href="/admin/providers" className="flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 text-left transition hover:bg-slate-100 no-underline">
+                      <span className="flex items-center gap-2.5">
+                        <Shield size={16} className="text-slate-600" />
+                        <span>
+                          <span className="block text-xs font-bold text-slate-800">Provider approvals</span>
+                          <span className="block text-[10px] text-slate-500">{metricValue("providers_pending", access.summary?.providers_pending)} pending · full lifecycle manager</span>
+                        </span>
+                      </span>
+                      <span className="text-[10px] font-bold text-slate-500">Open →</span>
+                    </Link>
+                    <Link href="/admin/config" className="flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 text-left transition hover:bg-slate-100 no-underline">
+                      <span className="flex items-center gap-2.5">
+                        <Settings2 size={16} className="text-slate-600" />
+                        <span>
+                          <span className="block text-xs font-bold text-slate-800">Business configuration</span>
+                          <span className="block text-[10px] text-slate-500">Fees, shares, plan quotas · audited writes</span>
+                        </span>
+                      </span>
+                      <span className="text-[10px] font-bold text-slate-500">Open →</span>
+                    </Link>
+                    <Link href="/admin/audit" className="flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 text-left transition hover:bg-slate-100 no-underline">
+                      <span className="flex items-center gap-2.5">
+                        <ClipboardList size={16} className="text-slate-600" />
+                        <span>
+                          <span className="block text-xs font-bold text-slate-800">Audit log</span>
+                          <span className="block text-[10px] text-slate-500">Latest {(adminAuditEvents ?? []).length} events · metadata only</span>
+                        </span>
+                      </span>
+                      <span className="text-[10px] font-bold text-slate-500">Open →</span>
+                    </Link>
+                  </div>
+                </section>
+
+                <section className="card">
+                  <div className="card-head">
+                    <div>
+                      <h2 className="card-title">Provider registry</h2>
+                      <div className="card-caption">Organization name, status and licensing metadata</div>
+                    </div>
+                    <span className="verified-chip">{(adminProviders ?? []).length} approved</span>
+                  </div>
+                  <div className="card-body space-y-2">
+                    {(adminProviders ?? []).slice(0, 6).map((p) => (
+                      <div key={p.provider_id} className="flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50/50 p-2.5 text-xs">
+                        <div>
+                          <strong>{p.provider_name}</strong>
+                          <div className="text-[10px] text-slate-400 capitalize">{p.provider_type}</div>
+                        </div>
+                        <span className="admin-role-chip active">Approved</span>
+                      </div>
+                    ))}
+                    {!(adminProviders ?? []).length && (
+                      <div className="rounded-xl bg-slate-50 p-5 text-center text-[10px] text-slate-400">No approved providers yet.</div>
+                    )}
+                  </div>
+                </section>
+              </div>
             </div>
           )
         ) : workspace === "patient" && patientPortalData ? (
@@ -287,13 +458,14 @@ export function SecureWorkspace({
         ) : workspace === "front-desk" ? (
           <RealFrontDeskPanel
             patients={realPatients}
+            collections={frontDeskCollections ?? []}
             config={frontDeskConfig ? { registrationFee: frontDeskConfig.registration_fee, providerSharePercent: frontDeskConfig.provider_share_percent } : undefined}
             section={panelSection}
           />
         ) : workspace === "pharmacy" ? (
-          <RealPharmacyPanel section={panelSection} />
+          <RealPharmacyPanel section={panelSection} activity={pharmacyActivity} />
         ) : workspace === "lab" ? (
-          <RealLabPanel patients={realPatients} section={panelSection} />
+          <RealLabPanel patients={realPatients} section={panelSection} reports={labReports ?? []} />
         ) : workspace === "provider-admin" ? (
           // P2-9/P2-10: the real provider-admin workspace (staff + ledger + payout).
           <RealProviderAdminPanel data={providerAdminData ?? { providerId: "", providerName: "", providerType: "", staff: [], ledger: [], kpis: { patientsRegistered: 0, documentsIssued: 0, feesCollected: 0, shareEarned: 0, sharePending: 0, outstandingInvoices: 0, activeStaff: 0 } }} section={panelSection} />
