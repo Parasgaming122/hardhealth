@@ -179,7 +179,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 @keyframes toast-in { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
 @media (prefers-reduced-motion:reduce) { *,*::before,*::after { scroll-behavior:auto !important; transition-duration:.01ms !important; animation-duration:.01ms !important; } }
 @media (max-width:1100px) { .sidebar { width:220px; flex-basis:220px; } .content { padding:25px 23px 40px; } .topbar { padding:0 23px; } .kpi-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
-@media (max-width:800px) { .sidebar { display:none; } .topbar { min-height:60px; padding:0 16px; } .content { padding:22px 16px 86px; } .content-grid,.content-grid.equal,.content-grid.wide-side { grid-template-columns:1fr; } .mobile-nav { display:flex; position:fixed; bottom:0; left:0; right:0; z-index:30; background:rgba(255,255,255,.96); backdrop-filter:blur(10px); border-top:1px solid var(--line); justify-content:space-around; padding:8px 5px max(8px,env(safe-area-inset-bottom)); } .mobile-nav button { display:flex; flex-direction:column; gap:4px; align-items:center; border:0; background:transparent; color:#92a1a3; font-size:8px; font-weight:700; padding:5px 9px; } .mobile-nav button.active { color:var(--teal); } .login-wrap { grid-template-columns:1fr; } .login-hero { display:none; } .login-card-wrap { min-height:100vh; padding:18px; } .page-heading { margin-bottom:18px; } }
+@media (max-width:800px) { .sidebar { display:none; } .topbar { min-height:0; padding:8px 16px; flex-wrap:wrap; row-gap:6px; } .topbar .avatar, .topbar .btn-icon { flex:none; } .content { padding:22px 16px calc(86px + env(safe-area-inset-bottom)); } .content-grid,.content-grid.equal,.content-grid.wide-side { grid-template-columns:1fr; } .mobile-nav { display:flex; position:fixed; bottom:0; left:0; right:0; z-index:30; background:rgba(255,255,255,.96); backdrop-filter:blur(10px); border-top:1px solid var(--line); justify-content:flex-start; gap:2px; padding:7px 6px max(7px,env(safe-area-inset-bottom)); width:100%; max-width:100vw; box-sizing:border-box; overflow-x:auto; overflow-y:hidden; scrollbar-width:none; overscroll-behavior-x:contain; -webkit-overflow-scrolling:touch; } .mobile-nav::-webkit-scrollbar { display:none; } .mobile-nav button, .mobile-nav a { display:inline-flex; flex-direction:column; gap:4px; align-items:center; justify-content:center; border:0; background:transparent; color:#92a1a3; font-size:8px; font-weight:700; line-height:1.25; padding:5px 10px; flex:1 0 auto; white-space:nowrap; text-decoration:none; border-radius:9px; min-height:46px; } .mobile-nav button.active, .mobile-nav a.active { color:var(--teal); } .mobile-nav button:hover, .mobile-nav a:hover { background:#f0f7f4; } .login-wrap { grid-template-columns:1fr; } .login-hero { display:none; } .login-card-wrap { min-height:100vh; padding:18px; } .page-heading { margin-bottom:18px; } }
 @media (max-width:520px) { .topbar-right { gap:8px; } .crumb { display:none; } .demo-pill { font-size:8px; padding:5px 7px; } .role-select { padding:0 8px; max-width:145px; font-size:9px; } .kpi-grid { gap:9px; } .kpi { padding:13px; min-height:92px; } .kpi-value { font-size:18px; } .kpi-icon { top:11px; right:11px; width:25px; height:25px; } .card-head { padding:15px 15px 0; } .card-body { padding:13px 15px 16px; } .form-grid,.form-grid.three { grid-template-columns:1fr; } .login-card { padding:23px; } .section-tabs { margin-right:-16px; padding-right:16px; } }
 @media print { .sidebar,.topbar,.mobile-nav,.no-print { display:none !important; } .shell,.workspace { display:block; background:#fff; } .content { padding:0; max-width:none; } .card { box-shadow:none; } body { background:#fff; } }
 /* P2-6 (brief 5.4.4/6): the print-only prescription sheet. Hidden on screen;
@@ -845,9 +845,17 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   .secure-auth-card { justify-self: stretch; width: 100%; }
   .secure-main-grid { grid-template-columns: minmax(0,1fr); }
   .secure-page-heading { align-items: flex-start; flex-direction: column; }
-  .secure-content { padding: 20px 16px 40px; }
+  .secure-content { padding: 20px 16px calc(96px + env(safe-area-inset-bottom)); }
 }
 @media (max-width: 480px) {
+  /* Owner feedback 2026-11-23 (Android): the topbar overflowed 360px screens
+     (avatar squeezed to 16px, sign-out pushed off-screen). Compact the three
+     textual TOPBAR controls to icon-only pills so everything fits one row;
+     the flex-wrap fallback (800px block) covers anything narrower still.
+     Scoped to .topbar so the login/signup hero badge keeps its text. */
+  .topbar .secure-badge { font-size:0; padding:7px 8px; }
+  .topbar .demo-pill { font-size:0; padding:6px 8px; }
+  .topbar .secure-admin-switcher > summary { font-size:0; gap:0; padding:0 9px; }
   .workspace-card-grid { grid-template-columns: minmax(0,1fr); }
   .preview-metrics { gap: 6px; }
   .preview-card { min-height: 109px; padding: 10px 8px; }

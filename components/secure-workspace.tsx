@@ -223,7 +223,7 @@ export function SecureWorkspace({
           <Link href="/demo" className="demo-pill inline-flex items-center gap-1.5 no-underline ml-2" title="Switch roles instantly and run the 5-7 minute prototype demo loop"><Play size={10} fill="currentColor" /> Explore Offline Demo</Link>
         </div>
         <div className="topbar-right">
-          {hasAdminRole && <details className="secure-admin-switcher"><summary><Shield size={14} /> Workspaces</summary><div className="secure-admin-switcher-menu">{workspaceSlugs.map((slug) => <Link key={slug} href={`/${slug}/overview`}>{workspaceConfig[slug].label}</Link>)}</div></details>}
+          {hasAdminRole && <details className="secure-admin-switcher"><summary title="Switch workspace"><Shield size={14} /> Workspaces</summary><div className="secure-admin-switcher-menu">{workspaceSlugs.map((slug) => <Link key={slug} href={`/${slug}/overview`}>{workspaceConfig[slug].label}</Link>)}</div></details>}
           <span className="avatar" aria-label={`Signed in as ${displayName}`}>{displayName.trim().slice(0, 2).toUpperCase()}</span>
           <form action={signOutAction}><button type="submit" className="btn-icon secure-mobile-signout" aria-label="Sign out"><LogOut size={15} /></button></form>
         </div>

@@ -1,3 +1,6 @@
+"use client";
+
+import { useEffect, useRef } from "react";
 import Link from "next/link";
 import { Activity, BadgeCheck, Building2, ClipboardList, FileClock, FileText, LayoutDashboard, Pill, ScanLine, Settings2, Shield, Stethoscope, UsersRound, WalletCards } from "lucide-react";
 import { workspaceConfig, type WorkspaceSlug } from "@/lib/auth/roles";
@@ -7,7 +10,16 @@ const icons = { overview: LayoutDashboard, timeline: Activity, prescriptions: Pi
 export function SecureMobileNav({ workspace, sections }: { workspace: WorkspaceSlug; sections: string[] }) {
   const pages = workspaceConfig[workspace].pages;
   const activePath = sections.length ? sections.join("/") : "overview";
-  return <nav className="mobile-nav secure-mobile-nav" aria-label={`${workspaceConfig[workspace].label} mobile navigation`}>
+  const navRef = useRef<HTMLElement | null>(null);
+
+  // With 8 tabs on a phone the bar scrolls horizontally (globals.css); keep the
+  // ACTIVE tab in view when landing on a deep link (e.g. /patient/billing).
+  useEffect(() => {
+    const active = navRef.current?.querySelector("a.active");
+    active?.scrollIntoView({ block: "nearest", inline: "center", behavior: "instant" });
+  }, [workspace, activePath]);
+
+  return <nav ref={navRef} className="mobile-nav secure-mobile-nav" aria-label={`${workspaceConfig[workspace].label} mobile navigation`}>
     {pages.map((page) => {
       const iconKey = page.key.split("/")[0] as keyof typeof icons;
       const Icon = icons[iconKey] ?? BadgeCheck;
