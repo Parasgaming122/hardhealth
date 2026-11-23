@@ -865,6 +865,7 @@ Dev server confirmed running; tsc 0 errors; vitest 17/17 at that time.
 
 | zip | uploaded at | URL | expires |
 |---|---|---|---|
+| hard_phase2_part14_android_ui.zip (incl. .git history, session 14 commit a2e6262; .env.local EXCLUDED) | 2026-11-23 | https://tempfile.org/FHJJcYS3eQu/ | +48h |
 | hard_phase2_part13_deploy_auth.zip (incl. .git history, session 13 commit 0adda05; .env.local EXCLUDED) | 2026-11-21 | https://tempfile.org/F4AMa4NhbAU/ | +48h |
 | hard_phase2_part9_repeat.zip (incl. .git history, commit 19c0dc5; .env.local EXCLUDED) | 2026-11-20 | https://tempfile.org/hckkZPYQBFM/ | +48h |
 | hard_phase2_part8_templates.zip (incl. .git history, commit 70d14fb; .env.local EXCLUDED) | 2026-11-20 | https://tempfile.org/W6hnqZvKy5J/ | +48h |
