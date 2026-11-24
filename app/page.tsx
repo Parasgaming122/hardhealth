@@ -30,6 +30,15 @@ export default function HomePage() {
 
       <section className="hard-home-bottom"><div><span className="secure-eyebrow">Built for trust, not data sprawl</span><h2>Records are private.<br />Costs are visible.</h2><p>Role checks happen in the application and database. Pharmacy access is token-scoped. Platform administration is limited to non-clinical user/provider metadata and aggregate finance.</p></div><div className="hard-home-bottom-card"><ChartNoAxesCombined size={21}/><strong>A prototype, clearly labeled.</strong><p>Real sign-in and role-scoped Supabase summaries are separate from the fictional interactive demo. This preview is not for clinical decisions or real patient data.</p><Link href="/demo">Open demo workspace <ArrowRight size={14}/></Link></div></section>
       <footer className="hard-home-footer"><span>H.A.R.D · FinTech Expo Fall 2026</span><span>Healthcare costs, made clearer.</span></footer>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify({
+          "@context": "https://schema.org",
+          "@type": "WebSite",
+          name: "H.A.R.D",
+          description: "Healthcare accounting and record keeping prototype.",
+        }) }}
+      />
     </main>
   );
 }

@@ -95,6 +95,60 @@ email field), and asked for validated fields plus desk-registration → signup l
 
 ---
 
+## 2026-11-24 — Session 14: website optimization (bundles, server reads, SEO, mobile) + agent skills
+
+**Context**: owner request "Optimize website", with references to the official Next.js/Vercel
+agent skills (next-bundle-optimizer, react-best-practices, cache-components/partial-prefetching
+optimizers, nextjs-seo, supabase agent-skills). Followed the next-bundle-optimizer workflow:
+`next analyze --output --snapshot` captures, streamed JSONL analysis, then fix-mode edits with
+before/after evidence from real browser transfers (Playwright + CDP encodedDataLength).
+
+**Skills installed into the repo** (`.agents/skills/`, pinned by `skills-lock.json`, committed):
+next-bundle-optimizer, next-cache-components-optimizer, next-partial-prefetching-optimizer
+(vercel/next.js); vercel-react-best-practices + 8 more (vercel-labs/agent-skills); supabase +
+supabase-postgres-best-practices (supabase/agent-skills); nextjs-seo
+(laguagu/claude-code-nextjs-skills — the only third-party source the owner's list included).
+Also set `git config core.fileMode false` locally to neutralize zip-restore mode-churn.
+
+**Code changes**:
+- `components/secure-workspace.tsx`: all 9 real workspace panels became `next/dynamic` chunks
+  (each role downloads only its own panel; SecureMobileNav stays static).
+- `components/app-shell.tsx`: all 7 demo panels became `next/dynamic` chunks (LoginScreen
+  stays static for first paint). Fixed the notification dropdown clamp
+  `w-[min(350px,calc(100vw-92px))]` (previously 100vw-24px, ignoring its 80px right offset —
+  overflowed ~55px on 375px phones).
+- `app/layout.tsx`: removed the root-level `AppProviders` (DemoProvider) wrap — it now lives in
+  `app/demo/page.tsx` only (`/rx/resolve` and `/verify/lab/*` already self-wrap); root metadata
+  upgraded (metadataBase from NEXT_PUBLIC_SITE_URL/VERCEL env, title template, Open Graph,
+  Twitter card) + viewport export (device-width, themeColor #059669).
+- `app/[workspace]/[[...section]]/page.tsx`: Promise.all-parallelized the session+workspace
+  reads and the admin/front-desk/doctor branches (rejection/degrade semantics preserved; the
+  collections read still correctly chains on the front-desk role result).
+- SEO routes: `app/robots.ts` (landing page allowed; auth/demo/token/workspace paths
+  disallowed; Sitemap line) and `app/sitemap.ts` (absolute URLs) — both static.
+- Page metadata titles normalized to the `%s · H.A.R.D` template (login, signup,
+  access-pending, setup, demo, rx/resolve, verify/lab) + WebSite JSON-LD on the landing page.
+
+**Measured results** (production build, Playwright CDP wire bytes, prefetch aborted, desktop):
+| route | before | after |
+|---|---|---|
+| / | 172.2 kB | 163.8 kB |
+| /login | 174.6 kB | 166.2 kB |
+| /demo | 358.4 kB | 214.0 kB |
+| /rx/resolve | 358.4 kB | 214.0 kB |
+
+**Validation**: tsc 0 errors; vitest 91 passed/4 skipped (unchanged baseline); `npm run build`
+green; Playwright: zero page errors and zero horizontal overflow on Pixel-viewport audits of
+/, /login, /demo, /rx/resolve and the demo workspace states (pharmacy with notifications open,
+patient) — the only geometry "offenders" are tabs inside the intentionally scrollable
+`.section-tabs` strip. robots.txt/sitemap.xml verified served. `next analyze` snapshots kept:
+`s14-before` / `s14-after` (analysis scripts in /home/z/my-project/scripts/).
+
+**Known environmental caveat** (NOT a regression): `pnpm test:e2e` fails identically on the
+unmodified HEAD build in this sandbox — it requires real Supabase env (.env.local was lost with
+the earlier sandbox recycle); verified by running the suite against both HEAD and the optimized
+build with fake endpoint env.
+
 ## 2026-11-21 — Session 13: deployed-site auth fix (Google OAuth + signup origin rejection)
 
 **Context**: after deploying, the owner reported two auth failures on the deployed site:

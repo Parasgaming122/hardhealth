@@ -2,6 +2,8 @@ import { Suspense } from "react";
 import { AppProviders } from "@/components/app-providers";
 import LabVerificationQuery from "./lab-verification-query";
 
+export const metadata = { title: "Verify a lab report", robots: { index: false, follow: false } };
+
 export default function LabVerificationQueryPage() {
   return (
     <AppProviders>

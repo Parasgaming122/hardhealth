@@ -1,18 +1,25 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import { Activity, ArrowDownRight, ArrowUpRight, BadgeCheck, Bell, Building2, ChartNoAxesCombined, ClipboardList, FileClock, FilePlus2, FileText, HeartPulse, Home, LayoutDashboard, LogOut, Pill, Plus, QrCode, ScanLine, Settings2, Shield, Stethoscope, UsersRound, WalletCards, X } from "lucide-react";
 import { LoginScreen } from "@/components/login-screen";
-import { PatientDashboard } from "@/components/patient-dashboard";
-import { FrontDeskPanel } from "@/components/panels/front-desk-panel";
-import { DoctorPanel } from "@/components/panels/doctor-panel";
-import { PharmacyPanel } from "@/components/panels/pharmacy-panel";
-import { LabPanel } from "@/components/panels/lab-panel";
-import { ProviderAdminPanel } from "@/components/panels/provider-admin-panel";
-import { PlatformAdminPanel } from "@/components/panels/platform-admin-panel";
 import { useDemo } from "@/components/demo-provider";
 import { ROLE_LABELS, type Role } from "@/lib/domain";
 import { RolePicker } from "@/components/ui";
+
+// S14 (bundle): the seven role panels now stream in on demand after a role is
+// picked, instead of all of them (plus recharts and the QR camera stack)
+// shipping in the initial /demo and /rx/resolve download. The login screen
+// stays static because it is the first thing an anonymous visitor sees.
+const PanelLoading = () => <div className="grid min-h-[50vh] place-items-center text-xs text-slate-400">Loading workspace…</div>;
+const PatientDashboard = dynamic(() => import("@/components/patient-dashboard").then((m) => ({ default: m.PatientDashboard })), { loading: PanelLoading });
+const FrontDeskPanel = dynamic(() => import("@/components/panels/front-desk-panel").then((m) => ({ default: m.FrontDeskPanel })), { loading: PanelLoading });
+const DoctorPanel = dynamic(() => import("@/components/panels/doctor-panel").then((m) => ({ default: m.DoctorPanel })), { loading: PanelLoading });
+const PharmacyPanel = dynamic(() => import("@/components/panels/pharmacy-panel").then((m) => ({ default: m.PharmacyPanel })), { loading: PanelLoading });
+const LabPanel = dynamic(() => import("@/components/panels/lab-panel").then((m) => ({ default: m.LabPanel })), { loading: PanelLoading });
+const ProviderAdminPanel = dynamic(() => import("@/components/panels/provider-admin-panel").then((m) => ({ default: m.ProviderAdminPanel })), { loading: PanelLoading });
+const PlatformAdminPanel = dynamic(() => import("@/components/panels/platform-admin-panel").then((m) => ({ default: m.PlatformAdminPanel })), { loading: PanelLoading });
 
 const defaultSection: Record<Role, string> = {
   patient: "Overview", doctor: "Today", frontDesk: "Overview", pharmacy: "Scan / resolve", lab: "New report", providerAdmin: "Overview", platformAdmin: "Overview",
@@ -66,7 +73,7 @@ export function AppShell() {
         <div className="topbar-left"><div className="crumb">H.A.R.D <span className="mx-1 text-slate-300">/</span> <strong>{panelTitle[currentRole]}</strong></div><span className="demo-pill"><span className="demo-dot" /> Demo prototype</span></div>
         <div className="topbar-right"><button className="btn-icon relative" aria-label="Notifications" onClick={() => setShowNotifications((value) => !value)}><Bell size={15} />{unseen > 0 && <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-emerald-600 px-1 text-[8px] font-bold text-white">{unseen}</span>}</button><RolePicker role={currentRole} onChange={(role) => { setSection(defaultSection[role]); loginAs(role); }} /><span className="avatar hidden sm:grid">{currentRole === "patient" ? "AS" : ROLE_LABELS[currentRole].slice(0, 2).toUpperCase()}</span></div>
       </header>
-      {showNotifications && <div className="fixed right-20 top-[58px] z-40 w-[min(350px,calc(100vw-24px))] rounded-2xl border border-slate-100 bg-white p-4 shadow-xl"><div className="mb-3 flex items-center justify-between"><div className="text-xs font-bold">Notifications</div><button onClick={() => setShowNotifications(false)} className="text-slate-400"><X size={14} /></button></div>{data.notifications.slice(0, 5).map((item) => <div key={item.id} className="border-t border-slate-50 py-3"><div className="flex items-center gap-2 text-[10px] font-bold">{!item.read && <span className="h-1.5 w-1.5 rounded-full bg-emerald-600" />}{item.title}</div><div className="mt-1 text-[9px] leading-4 text-slate-500">{item.body}</div></div>)}{data.notifications.length === 0 && <p className="py-4 text-[10px] text-slate-400">No notifications yet.</p>}</div>}
+      {showNotifications && <div className="fixed right-20 top-[58px] z-40 w-[min(350px,calc(100vw-92px))] rounded-2xl border border-slate-100 bg-white p-4 shadow-xl"><div className="mb-3 flex items-center justify-between"><div className="text-xs font-bold">Notifications</div><button onClick={() => setShowNotifications(false)} className="text-slate-400"><X size={14} /></button></div>{data.notifications.slice(0, 5).map((item) => <div key={item.id} className="border-t border-slate-50 py-3"><div className="flex items-center gap-2 text-[10px] font-bold">{!item.read && <span className="h-1.5 w-1.5 rounded-full bg-emerald-600" />}{item.title}</div><div className="mt-1 text-[9px] leading-4 text-slate-500">{item.body}</div></div>)}{data.notifications.length === 0 && <p className="py-4 text-[10px] text-slate-400">No notifications yet.</p>}</div>}
       <main className="content">
         {currentRole === "patient" && <PatientDashboard section={section} onSectionChange={setSection} />}
         {currentRole === "frontDesk" && <FrontDeskPanel section={section} onSectionChange={setSection} />}

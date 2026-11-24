@@ -255,6 +255,29 @@ Owner feedback after testing the Session-11 final version; every item below was 
   Phase 2 feature summary), empty states verified across the new panels (staff/ledger/config/
   storage all have explicit empty + blocked states).
 
+## Session 14 (2026-11-24) — Website optimization + AI agent skills — COMPLETE
+- [done] Installed the owner-requested agent skills into `.agents/skills/` (committed with
+  `skills-lock.json`): vercel/next.js bundle/cache-components/partial-prefetching optimizers,
+  vercel-labs react-best-practices set, supabase agent skills, nextjs-seo.
+- [done] Bundle optimization following next-bundle-optimizer: 9 real workspace panels + 7 demo
+  panels converted to `next/dynamic` chunks; DemoProvider scoped out of the root layout.
+  Measured initial JS+CSS: /demo and /rx/resolve 358 kB → 214 kB; / and /login −8.4 kB.
+- [done] react-best-practices async-parallel: workspace server reads parallelized
+  (session+payload, admin 5-way, front-desk config+role, doctor pair) with identical semantics.
+- [done] nextjs-seo: metadataBase + title template + OG/Twitter + viewport/themeColor on the
+  root layout, robots.ts + sitemap.ts (static routes, absolute URLs), per-page titles,
+  WebSite JSON-LD on the landing page.
+- [done] Android/mobile audit: Pixel-viewport geometry audit across public routes and demo
+  workspace states — zero horizontal overflow; fixed the demo notification dropdown clamp
+  (was `100vw-24px`, ignoring its 80px right offset; now `100vw-92px`).
+- [done] Validation: tsc 0, vitest 91 passed (baseline unchanged), build green, Playwright
+  wire-byte before/after evidence, `next analyze` snapshots s14-before/s14-after.
+- [note] `pnpm test:e2e` requires real Supabase env — fails identically on HEAD in this
+  sandbox (pre-existing, not a regression; proven by running the suite against both builds).
+- [future] cacheComponents (Next 16.3+) + partial prefetching adoption are NOT enabled —
+  follow the installed next-cache-components-optimizer / next-partial-prefetching-optimizer
+  rulebooks when the owner wants instant-shell work; both need a deliberate adoption pass.
+
 ## Standing user requirements
 - [always] Zip + upload to tempfile.org after every work unit (see DECISIONS.md D7).
 - [always] Keep this docs folder current (TASKS.md status, CHANGES.md entries, DECISIONS.md).

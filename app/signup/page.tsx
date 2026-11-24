@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { SecureSignupForm } from "@/components/secure-signup-form";
 
-export const metadata = { title: "Create a patient account · H.A.R.D", robots: { index: false, follow: false } };
+export const metadata = { title: "Create a patient account", robots: { index: false, follow: false } };
 
 type SignupPageProps = { searchParams: Promise<{ error?: string | string[] }> };
 

@@ -23,7 +23,7 @@ import { SetupRunnerForm } from "@/app/setup/setup-runner-form";
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: "Database setup · H.A.R.D",
+  title: "Database setup",
   robots: { index: false, follow: false },
 };
 

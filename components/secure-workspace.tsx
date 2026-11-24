@@ -4,16 +4,23 @@ import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Activity, BadgeCheck, Building2, ClipboardList, Database, FileClock, FileText, LayoutDashboard, LogOut, Pill, Play, ScanLine, Settings2, Shield, UsersRound, WalletCards } from "lucide-react";
-import { AdminUserManager } from "@/components/admin-user-manager";
-import { AdminProvidersManager } from "@/components/admin-providers-manager";
+import dynamic from "next/dynamic";
 import { SecureMobileNav } from "@/components/secure-mobile-nav";
-import { RealPatientPortal } from "@/components/real-patient-portal";
-import { RealFrontDeskPanel } from "@/components/real-front-desk-panel";
-import { RealDoctorPanel } from "@/components/real-doctor-panel";
-import { AdminConfigEditor } from "@/components/admin-config-editor";
-import { RealProviderAdminPanel } from "@/components/real-provider-admin-panel";
-import { RealPharmacyPanel } from "@/components/real-pharmacy-panel";
-import { RealLabPanel } from "@/components/real-lab-panel";
+
+// S14 (bundle): each role's panel streams in as its own chunk, so a signed-in
+// doctor no longer downloads the patient portal, the admin managers and every
+// other role's panel (and their server-action graphs) up front. The mobile nav
+// stays static because every visit renders it immediately.
+const PanelLoading = () => <div className="grid min-h-[50vh] place-items-center text-xs text-slate-400">Loading panel…</div>;
+const AdminUserManager = dynamic(() => import("@/components/admin-user-manager").then((m) => ({ default: m.AdminUserManager })), { loading: PanelLoading });
+const AdminProvidersManager = dynamic(() => import("@/components/admin-providers-manager").then((m) => ({ default: m.AdminProvidersManager })), { loading: PanelLoading });
+const RealPatientPortal = dynamic(() => import("@/components/real-patient-portal").then((m) => ({ default: m.RealPatientPortal })), { loading: PanelLoading });
+const RealFrontDeskPanel = dynamic(() => import("@/components/real-front-desk-panel").then((m) => ({ default: m.RealFrontDeskPanel })), { loading: PanelLoading });
+const RealDoctorPanel = dynamic(() => import("@/components/real-doctor-panel").then((m) => ({ default: m.RealDoctorPanel })), { loading: PanelLoading });
+const AdminConfigEditor = dynamic(() => import("@/components/admin-config-editor").then((m) => ({ default: m.AdminConfigEditor })), { loading: PanelLoading });
+const RealProviderAdminPanel = dynamic(() => import("@/components/real-provider-admin-panel").then((m) => ({ default: m.RealProviderAdminPanel })), { loading: PanelLoading });
+const RealPharmacyPanel = dynamic(() => import("@/components/real-pharmacy-panel").then((m) => ({ default: m.RealPharmacyPanel })), { loading: PanelLoading });
+const RealLabPanel = dynamic(() => import("@/components/real-lab-panel").then((m) => ({ default: m.RealLabPanel })), { loading: PanelLoading });
 import { signOutAction } from "@/app/login/actions";
 import { workspaceConfig, workspaceSlugs, isPlatformAdmin, type WorkspacePayload, type WorkspaceSlug } from "@/lib/auth/roles";
 import type { AdminApprovedProvider, AdminDirectoryUser } from "@/lib/admin/types";

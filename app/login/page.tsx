@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { SecureLoginForm } from "@/components/secure-login-form";
 
-export const metadata = { title: "Sign in · H.A.R.D", robots: { index: false, follow: false } };
+export const metadata = { title: "Sign in", robots: { index: false, follow: false } };
 type LoginPageProps = { searchParams: Promise<{ error?: string | string[] }> };
 
 export default async function LoginPage({ searchParams }: LoginPageProps) {

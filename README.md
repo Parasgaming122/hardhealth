@@ -86,6 +86,14 @@ conflict retries — never `count(*)`).
 
 The landing page is server-rendered and the demo client provider is loaded only under `/demo` and `/rx/resolve`, reducing client hydration on public and real role pages. The Supabase refresh proxy runs only on login/protected role routes. Production browser source maps are disabled. Security response headers are configured without restrictive frame headers that would break hosted Preview embedding.
 
+## Performance, SEO and mobile (S14)
+
+- **Lazy role panels.** All seven demo panels (in `app-shell`) and all nine real workspace panels (in `secure-workspace`) are `next/dynamic` chunks: a visitor downloads only the panel for the role actually in use, so `recharts`, the QR camera stack and every other role's panel stay out of the initial download of `/demo` and `/rx/resolve` (measured: 358 kB → 214 kB of initial JS+CSS on those routes).
+- **Parallel server reads.** The workspace route fetches its session, workspace payload and per-role data with `Promise.all` instead of sequential awaits; the admin branch runs its five reads concurrently while keeping the previous degrade/reject semantics.
+- **SEO routes.** `app/robots.ts` (crawlers are pointed at the landing page; auth, demo, token and workspace paths are disallowed) and `app/sitemap.ts` (absolute URLs from `NEXT_PUBLIC_SITE_URL` / Vercel env) are shipped as static routes; the root layout exports metadata (title template, Open Graph/Twitter) and a viewport with theme color.
+- **Mobile.** The demo notification dropdown now clamps to `min(350px, calc(100vw - 92px))` so it never overflows phone viewports; Pixel-viewport audits of `/`, `/login`, `/demo` and `/rx/resolve` (including the notification panel open) show zero horizontal overflow.
+- **Agent skills.** `.agents/skills/` now carries the official `next-bundle-optimizer`, `next-cache-components-optimizer`, `next-partial-prefetching-optimizer` (vercel/next.js), the Vercel Labs `vercel-react-best-practices` set, the Supabase agent skills and `nextjs-seo`; `skills-lock.json` pins their sources. Future cache-components / partial-prefetching adoption work (Next 16.3+ `cacheComponents`) can follow those rulebooks.
+
 ## Data and deployment boundaries
 
 The Supabase development database is intended for schema and synthetic test accounts only; do not add real patient data. The interactive demonstration remains fictional browser-local state. The real authenticated workspaces show role-checked database summaries, admin-only non-clinical account/role management and explicit empty states; they are not a complete clinical production product. Clinical data access has not been changed by the patient-signup/admin-role migration. Other clinical/financial reads and writes still need narrowly scoped audited RPCs before real use.

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { signOutAction } from "@/app/login/actions";
 
-export const metadata = { title: "Access pending · H.A.R.D", robots: { index: false, follow: false } };
+export const metadata = { title: "Access pending", robots: { index: false, follow: false } };
 
 export default function AccessPendingPage() {
   return (
