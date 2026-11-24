@@ -4,6 +4,29 @@ Legend: [done] completed · [wip] in progress · [todo] not started · [blocked]
 
 ---
 
+## Session 14 (2026-11-23) — Android/mobile UI: bottom nav + topbar overflow fixed
+
+Owner deployed and reported "Android UI is messed up" with a phone screenshot: nav labels
+mashed into one clipped line, fixed nav overlapping the last card.
+
+- [done] **Root causes (all CSS)**: ① mobile-nav item styles targeted `button` only while the
+  real workspaces render `<Link>` anchors (the /demo nav uses buttons, hence looked fine);
+  ② the fixed nav had `left:0;right:0` but no width → CSS shrink-to-fit sized it to its
+  content (408px on a 360px phone), dragging the whole page into sideways scroll;
+  ③ secure-content's mobile bottom padding (40px) was shorter than the nav (~61px) so the
+  last card hid behind the bar.
+- [done] **Fix**: items styled for `a`+`button` (icon-over-label, 8px, 46px touch targets,
+  teal active); bar is `width:100%; max-width:100vw` and swipes horizontally for 8 tabs
+  (few-tab workspaces still spread evenly); content padding now clears the nav incl.
+  safe-area inset; topbar wraps + avatar/sign-out can't be squashed; at ≤480px the three
+  textual topbar controls compact to icon-only pills (scoped to the topbar so the login
+  hero badge keeps its text); deep-linked active tab auto-scrolls into view.
+- [done] Verification: reproduced the broken state first (6 failures matching the
+  screenshot), then **15/15 mobile checks in dev AND production build** (360×760 Pixel-like
+  context) + desktop regression 39/39 (Session-12 suite) + tsc 0 + vitest 91 + build ok.
+- [done] Fixed a repo hygiene artifact: the part12 zip restore had set every file
+  executable (mode 100755); working-tree modes restored to match the git index.
+
 ## Session 13 (2026-11-21) — Deployed-site auth: origin gate + OAuth redirects fixed
 
 Owner deployed the app and both auth entry points failed on the deployed origin (Google button

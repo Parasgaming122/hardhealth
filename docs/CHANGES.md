@@ -212,6 +212,60 @@ config; steps documented in README and below.)
 
 ---
 
+## 2026-11-23 — Session 14: Android/mobile UI fix (bottom nav + topbar overflow)
+
+**Context**: after deploying, the owner reported "Android UI is messed up" with a phone
+screenshot of /patient/overview — green circle around the bottom area: the nav labels were
+squashed into one clipped line ("verviewTimelinePrescriptionsReportsExpensesProvider") and the
+fixed nav overlapped the "Digital prescriptions" card.
+
+### Root causes (three, all in `app/globals.css`)
+
+1. **Nav item styles never applied to the real workspaces**: the mobile-nav rules targeted
+   `.mobile-nav button` only, but `SecureMobileNav` renders `<Link>` anchors — so every real
+   workspace's tabs rendered as unstyled inline links (16px text, no icon-over-label column,
+   no padding) overflowing into one mashed line. (The offline /demo nav uses `<button>`, which
+   is why it always looked right — and why the bug went unnoticed.)
+2. **Fixed-position shrink-to-fit**: `.mobile-nav` had `left:0; right:0` but no width — CSS
+   sizes such boxes by *shrink-to-fit*, so with 8 non-shrinkable patient tabs the bar itself
+   grew to 408px on a 360px screen, dragging the whole document into horizontal scroll
+   (page wobbled sideways; avatar squashed to 16px; sign-out button off-screen).
+3. **Content padding shorter than the fixed nav**: the secure workspace's mobile rule set
+   `padding-bottom:40px` while the nav is ~61px — the last card hid behind the bar.
+
+### Changes
+
+1. `app/globals.css` (800px block): nav items styled for **both `button` and `a`** (icon-over-
+   label column, 8px font, nowrap, 46px touch target, teal active, hover pill); the bar is now
+   `width:100%; max-width:100vw` (kills the shrink-to-fit), `overflow-x:auto` with hidden
+   scrollbars so 8 tabs SWIPE horizontally instead of overflowing the page; few-tab workspaces
+   still spread evenly (`flex:1 0 auto`). Generic `.content` mobile padding-bottom now
+   `calc(86px + env(safe-area-inset-bottom))`; topbar allows wrapping and its avatar/logout
+   buttons no longer squash (`flex:none`).
+2. `app/globals.css` (480px block): the three textual topbar controls (Authenticated badge,
+   Explore Offline Demo pill, Workspaces switcher) compact to icon-only pills so one row fits
+   360px — scoped `.topbar …` so the login/signup hero badge keeps its text.
+3. `components/secure-mobile-nav.tsx`: now a client component; on deep links (e.g.
+   /patient/billing) the ACTIVE tab auto-scrolls into view (centered) inside the scrollable
+   bar. `components/secure-workspace.tsx`: `title="Switch workspace"` on the icon-only
+   switcher summary.
+
+### Verification (all green)
+
+- Reproduced the owner's state first (`scripts/verify_s14_mobile_ui.mjs before` — 6 failures
+  matching the screenshot: 16px row-direction items, page 408px wide on 360px viewport,
+  Billing tab unreachable at left=463, padding 88 < nav 82).
+- **After the fix: 15/15 checks PASS in dev AND in the production build** (Pixel-like context:
+  360×760, DPR 3, isMobile, touch): 8 tabs styled, internal scroll only, document exactly
+  360px (no sideways wobble), last card fully visible 72px above the nav, deep-linked Billing
+  tab auto-centered, /demo button-nav still styled, login hero badge text intact, doctor
+  workspace (4 tabs) clean, zero client errors. VLM review of the after-screenshot confirms
+  the layout (remaining "dark N button" is the dev-mode Next.js indicator, absent in prod).
+- Desktop regression: Session-12 suite `verify_s12_workspaces.mjs` **39/39**, no client errors.
+- `npx tsc --noEmit` 0 · `npx vitest run` **91 passed** · `npm run build` success.
+
+---
+
 ## 2026-11-20 — Session 11: health-id crash fix (final) + P2-13 amendments + pharmacy resolve hardening
 
 **Context**: The owner reported the production crash `duplicate key value violates unique constraint
@@ -865,6 +919,7 @@ Dev server confirmed running; tsc 0 errors; vitest 17/17 at that time.
 
 | zip | uploaded at | URL | expires |
 |---|---|---|---|
+| hard_phase2_part14_android_ui.zip (incl. .git history, session 14 commit a2e6262; .env.local EXCLUDED) | 2026-11-23 | https://tempfile.org/FHJJcYS3eQu/ | +48h |
 | hard_phase2_part13_deploy_auth.zip (incl. .git history, session 13 commit 0adda05; .env.local EXCLUDED) | 2026-11-21 | https://tempfile.org/F4AMa4NhbAU/ | +48h |
 | hard_phase2_part9_repeat.zip (incl. .git history, commit 19c0dc5; .env.local EXCLUDED) | 2026-11-20 | https://tempfile.org/hckkZPYQBFM/ | +48h |
 | hard_phase2_part8_templates.zip (incl. .git history, commit 70d14fb; .env.local EXCLUDED) | 2026-11-20 | https://tempfile.org/W6hnqZvKy5J/ | +48h |
